@@ -1,0 +1,45 @@
+run_id: null
+dataset:
+  module: data.data_loader
+  class: H5ADLoader
+  path: DATASETS/SCFM_datasets/EvalDatasets/cell_identity_batch/immune_cell_atlas.h5ad
+  load_raw: false
+  label_key: cell_type
+  batch_key: _scvi_batch
+  layer_name: X
+  train_test_split: null
+  cv_splits: null
+  dataset_name: immune_cell_atlas
+  task_name: biological_signal_preservation
+qc:
+  min_genes: 10
+  min_cells: 10
+preprocessing:
+  skip: false
+  normalize: true
+  target_sum: 10000
+  apply_log1p: true
+hvg:
+  skip: true
+  batch_key: _scvi_batch
+  n_top_genes: 4096
+  flavor: seurat
+embedding:
+  load_cached: false
+  method: scimilarity
+  module: features.scimilarity_extractor
+  class: SCimilarityExtractor
+  viz: true
+  eval: true
+  params:
+    model_path: /lotterlab/datasets/VCC/MODEL_CHECKPOINTS/SC_FM_repo_checkpoints/SCSimilarity/model_v1.1
+    use_gpu: true
+evaluations:
+- type: biological_signal
+  skip: false
+  params:
+    label_key: cell_type
+    metric: cosine
+    auto_subsample: true
+    leiden_resolution: 0.3
+    n_neighbors: 15

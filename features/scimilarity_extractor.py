@@ -30,21 +30,38 @@ class SCimilarityExtractor(EmbeddingExtractor):
     def preprocess_h5ad(self, h5ad_path_data , reorder: bool = True, norm: bool = True):
         """
         Loads and preprocesses AnnData according to SCimilarity requirements:
-          - Aligns gene ordering
-          - Applies log-normalization (TP10K)
+          - Aligns gene ordering (SCimilarity-specific, always needed)
+          - Applies log-normalization (TP10K) - skips if already done centrally
 
         Returns:
             AnnData object with processed .X
         """
-        if type(h5ad_path_data) ==str:
+        if type(h5ad_path_data) == str:
             adata = sc.read_h5ad(h5ad_path_data)
         else:
             adata = h5ad_path_data
 
-        if reorder:
-            adata = align_dataset(adata, self.ce.gene_order)
+        # Use gene symbols from saved column (SCimilarity requires gene symbols in var.index)
+        if 'gene_symbol' in adata.var.columns:
+            adata.var.index = adata.var['gene_symbol'].values
+        else:
+            raise ValueError("gene_symbol column not found in adata.var")
+
+        # Do gene alignment (SCimilarity-specific requirement)
+        if reorder:            
+            # Normalize SCimilarity's gene_order to uppercase to match our normalized dataset genes
+            # This fixes case sensitivity issues (e.g., 'C9orf152' vs 'C9ORF152')
+            gene_order_normalized = [str(g).strip().upper() for g in self.ce.gene_order]
+            self.log.info(f"Normalizing SCimilarity gene_order to uppercase for case-insensitive matching")
+            adata = align_dataset(adata, gene_order_normalized)
+        
+        # Check if normalization already done centrally
         if norm:
-            adata = lognorm_counts(adata)
+            if hasattr(adata, 'uns') and adata.uns.get('preprocessed', False):
+                self.log.info('Normalization already done centrally, skipping lognorm_counts()')
+            else:
+                # Do SCimilarity's normalization (equivalent to centralized normalize + log1p)
+                adata = lognorm_counts(adata)
 
         return adata
 
@@ -62,8 +79,13 @@ class SCimilarityExtractor(EmbeddingExtractor):
     def fit_transform(self, data_loader):
         self.data_loader = data_loader
         adata = data_loader.adata
-        adata = self.preprocess_h5ad( adata , reorder = True, norm = True)
-        embeddings = self.get_embeddings(adata, num_cells = -1, buffer_size = 10000)
+        
+        # Always do preprocessing - it will check internally if normalization is already done
+        # This ensures gene alignment is always performed (SCimilarity-specific requirement)
+        self.log.info('Applying SCimilarity preprocessing (gene alignment + normalization if needed)...')
+        adata = self.preprocess_h5ad(adata, reorder=True, norm=True)
+        
+        embeddings = self.get_embeddings(adata, num_cells=-1, buffer_size=10000)
         self.data_loader.adata.obsm['X_scimilarity'] = embeddings
             
         return embeddings
