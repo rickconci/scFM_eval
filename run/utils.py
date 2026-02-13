@@ -8,6 +8,98 @@ import random
 import numpy as np
 import torch
 from typing import Tuple, Dict, Any
+import os
+from pathlib import Path
+import glob
+import shutil
+import multiprocessing
+import tempfile
+from setup_path import TEMP_PATH
+
+# Module directory path
+dir_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+
+def configure_temp_directory() -> None:
+    """
+    Configure temporary directories for optimal performance.
+    
+    Strategy:
+    - Use local /tmp for multiprocessing temp files (TMPDIR) to avoid NFS cleanup issues
+      (pymp-* directories on NFS cause "Device or resource busy" errors)
+    - Use TEMP_PATH (network storage) only for explicit large temp files (h5ad caches)
+      that benefit from network storage persistence
+    
+    This prevents:
+    1. OSError: [Errno 16] Device or resource busy errors from NFS multiprocessing cleanup
+    2. pymp-* directories accumulating with stale NFS handles
+    3. Large temp files filling up local /tmp
+    """
+    try:
+        # Ensure TEMP_PATH exists for explicit large temp file operations
+        TEMP_PATH.mkdir(parents=True, exist_ok=True)
+        
+        # Use LOCAL /tmp for multiprocessing to avoid NFS cleanup issues
+        # Python's multiprocessing creates pymp-* directories in TMPDIR,
+        # and NFS file locking causes "Device or resource busy" errors on cleanup
+        local_tmp = '/tmp'
+        os.environ['TMPDIR'] = local_tmp
+        os.environ['TEMP'] = local_tmp
+        os.environ['TMP'] = local_tmp
+        
+        # Don't override tempfile.tempdir - let it use system default (/tmp)
+        # This ensures multiprocessing uses local storage
+        # For explicit large temp files, use TEMP_PATH directly in code
+        
+        # Set multiprocessing start method to 'spawn' for cleaner process handling
+        if hasattr(multiprocessing, 'set_start_method'):
+            try:
+                multiprocessing.set_start_method('spawn', force=False)
+            except RuntimeError:
+                # Already set, ignore
+                pass
+    except Exception:
+        # If configuration fails, continue anyway
+        pass
+
+
+def cleanup_temp_files() -> None:
+    """
+    Clean up temporary files and directories.
+    
+    Cleans:
+    1. pymp-* directories in the project root
+    2. Old temp files in TEMP_PATH (older than 24 hours)
+    """
+    import time
+    
+    # Clean pymp-* directories in project root
+    pymp_pattern = str(Path(dir_path) / 'pymp-*')
+    pymp_dirs = glob.glob(pymp_pattern)
+    for pymp_dir in pymp_dirs:
+        try:
+            pymp_path = Path(pymp_dir)
+            if pymp_path.is_dir() and pymp_path.name.startswith('pymp-'):
+                shutil.rmtree(pymp_path, ignore_errors=True)
+        except Exception:
+            pass
+    
+    # Clean old temp files in TEMP_PATH (older than 24 hours)
+    try:
+        cutoff_time = time.time() - (24 * 60 * 60)  # 24 hours ago
+        for temp_file in TEMP_PATH.iterdir():
+            try:
+                if temp_file.stat().st_mtime < cutoff_time:
+                    if temp_file.is_file():
+                        temp_file.unlink()
+                    elif temp_file.is_dir():
+                        shutil.rmtree(temp_file, ignore_errors=True)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
 
 
 # List to store timing records
@@ -70,34 +162,51 @@ def get_configs(config_path: str) -> Tuple[Any, ...]:
 
     Returns:
         Tuple containing run_id, data_config, qc_config, preproc_config, hvg_config, feat_config, evaluations_config.
+
+    Raises:
+        ValueError: If the file is empty or does not contain a valid YAML mapping.
     """
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
 
+    if config is None or not isinstance(config, dict):
+        raise ValueError(
+            f"Config file is empty or invalid (expected a YAML mapping): {config_path}. "
+            "Ensure the file contains key-value pairs (e.g. run_id, dataset, embedding, evaluations)."
+        )
+
     run_id = config.get('run_id', None)
-    data_config = config['dataset']
-    qc_config = config['qc']
-    preproc_config = config['preprocessing']
-    feat_config = config['embedding']
-    hvg_config = None
-    if 'hvg' in config:
-        hvg_config = config['hvg']
-    
-    # Handle new evaluations structure
+    data_config = config.get('dataset', {})
+    qc_config = config.get('qc', {})
+    preproc_config = config.get('preprocessing', {})
+    feat_config = config.get('embedding', {})
+    hvg_config = config.get('hvg', {})
     evaluations_config = config.get('evaluations', [])
-    
-    # Backward compatibility: convert old 'classification' section to new 'evaluations' format
-    if 'classification' in config and not evaluations_config:
-        classification_config = config['classification']
-        # Convert old format to new format
-        if not classification_config.get('skip', False):
-            evaluations_config.append({
-                'type': 'classification',
-                'skip': False,
-                'params': classification_config.get('params', {})
-            })
-    
+        
     return run_id, data_config, qc_config, preproc_config, hvg_config, feat_config, evaluations_config
+
+
+def get_experiment_type(config_path: str) -> str:
+    """
+    Get the experiment type from a YAML config file.
+    
+    Args:
+        config_path: Path to the YAML config file.
+        
+    Returns:
+        Experiment type string. Options:
+        - 'default': Standard single-method experiment (default)
+        - 'synthetic_benchmark': Multi-method synthetic data benchmark
+    """
+    with open(config_path, 'r') as file:
+        config = yaml.safe_load(file)
+
+    if config is None or not isinstance(config, dict):
+        raise ValueError(
+            f"Config file is empty or invalid: {config_path}. "
+            "Cannot determine experiment_type."
+        )
+    return config.get('experiment_type', 'default')
 
 
 def get_embedding_key(feat_config: Dict[str, Any]) -> str:

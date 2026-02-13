@@ -30,7 +30,7 @@ hvg:
     
 embedding:
     method: PCA
-    module: features.pca_extractor
+    module: extractors.pca_extractor
     class: PCAEmbeddingExtractor
     viz: False
     eval: False

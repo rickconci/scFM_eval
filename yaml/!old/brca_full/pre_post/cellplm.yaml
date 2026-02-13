@@ -31,7 +31,7 @@ hvg:
 embedding:
     load_cached: False
     method: cellplm
-    module: features.cellplm_extractor
+    module: extractors.cellplm_extractor
     class: CellPLMExtractor
     viz: True
     eval: True

@@ -38,7 +38,7 @@ hvg:
 embedding:
     load_cached: False
     method: scimilarity
-    module: features.scimilarity_extractor
+    module: extractors.scimilarity_extractor
     class: SCimilarityExtractor
     viz: True
     eval: True

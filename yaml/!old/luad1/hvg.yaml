@@ -23,7 +23,7 @@ preprocessing:
 
 embedding:
     method: HVG
-    module: features.hvg_extractor
+    module: extractors.hvg_extractor
     class: HVGExtractor
     viz: False
     eval: False

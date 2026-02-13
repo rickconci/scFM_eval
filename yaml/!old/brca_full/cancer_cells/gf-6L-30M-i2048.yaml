@@ -26,7 +26,7 @@ hvg:
     
 embedding:
     method: geneformer
-    module: features.gf_extractor
+    module: extractors.gf_extractor
     class: GeneformerExtractor
     viz: False
     eval: False

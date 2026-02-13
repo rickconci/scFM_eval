@@ -34,7 +34,7 @@ embedding:
 
   methods:
     - name: scConcept
-      module: features.scconcept_extractor
+      module: extractors.scconcept_extractor
       class: scConceptExtractor
       params:
         model_name: Corpus-30M
@@ -45,7 +45,7 @@ embedding:
         use_gpu: True
 
     - name: scimilarity
-      module: features.scimilarity_extractor
+      module: extractors.scimilarity_extractor
       class: SCimilarityExtractor
       params:
         model_path: /lotterlab/datasets/VCC/MODEL_CHECKPOINTS/SC_FM_repo_checkpoints/SCSimilarity/model_v1.1

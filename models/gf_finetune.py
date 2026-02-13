@@ -11,10 +11,19 @@ import pickle
 from geneformer import TranscriptomeTokenizer
 logger = get_logger()
 import os
+import warnings
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib import pyplot as plt
+
+# Suppress seaborn's internal deprecation warning about 'vert' parameter
+warnings.filterwarnings(
+    'ignore',
+    category=PendingDeprecationWarning,
+    message='vert: bool will be deprecated',
+    module='seaborn.categorical'
+)
 from collections import defaultdict
 import torch.nn as nn
 from evaluation.eval import eval_classifier, plot_classifier
@@ -406,7 +415,7 @@ class GFFineTuneModel:
         # Plot metrics
         metrics.fillna(0, inplace=True)
         plt.figure(figsize=(10, 6))
-        sns.boxplot(x='Metrics', y=self.model_name, data=metrics)
+        sns.boxplot(x='Metrics', y=self.model_name, data=metrics, orientation='vertical')
         plt.title('Cross-Validation Metric Distribution')
         plt.ylim(0, 1.05)
         plt.xticks(rotation=45)

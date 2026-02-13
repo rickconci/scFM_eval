@@ -242,34 +242,30 @@ def eval_scib_metrics(
             n_comps=50,
             verbose=False
         )
-        # Add iLISI (integration LISI) - measures batch mixing
+        # Add iLISI (integration LISI) - raw median, range [1, n_batches], higher = better mixing
         logger.info('Computing iLISI...')
         try:
-            # Use pure Python implementation to avoid GLIBC dependency
             ilisi_scores = compute_lisi_pure_python(
                 adata,
                 obs_key=batch_key,
                 n_neighbors=90,
             )
-            n_batches = adata.obs[batch_key].nunique()
             ilisi = np.nanmedian(ilisi_scores)
-            results_dict["iLISI"] = (ilisi - 1) / (n_batches - 1) if n_batches > 1 else np.nan
+            results_dict["iLISI"] = float(ilisi)
         except Exception as e:
             logger.warning(f"iLISI computation failed: {e}")
             results_dict["iLISI"] = np.nan
-        
-        # Add cLISI (cell type LISI) - measures cell type separation
+
+        # Add cLISI (cell type LISI) - raw median, range [1, n_labels], lower = better separation (optimal = 1)
         logger.info('Computing cLISI...')
         try:
-            # Use pure Python implementation to avoid GLIBC dependency
             clisi_scores = compute_lisi_pure_python(
                 adata,
                 obs_key=label_key,
                 n_neighbors=90,
             )
-            n_labels = adata.obs[label_key].nunique()
             clisi = np.nanmedian(clisi_scores)
-            results_dict["cLISI"] = (n_labels - clisi) / (n_labels - 1) if n_labels > 1 else np.nan
+            results_dict["cLISI"] = float(clisi)
         except Exception as e:
             logger.warning(f"cLISI computation failed: {e}")
             results_dict["cLISI"] = np.nan

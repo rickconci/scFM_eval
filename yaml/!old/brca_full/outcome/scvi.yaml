@@ -36,7 +36,7 @@ hvg:
     
 embedding:
     method: scVI
-    module: features.scvi_extractor
+    module: extractors.scvi_extractor
     class: scVIEmbeddingExtractor
     viz: True
     eval: True

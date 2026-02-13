@@ -24,7 +24,7 @@ hvg:
   flavor: seurat
 embedding:
   method: scConcept
-  module: features.scconcept_extractor
+  module: extractors.scconcept_extractor
   class: scConceptExtractor
   viz: true
   eval: true

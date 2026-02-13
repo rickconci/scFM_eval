@@ -3,11 +3,20 @@ from os.path import join
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, KFold
 from sklearn.preprocessing import LabelEncoder
 import os
+import warnings
 import seaborn as sns
 from matplotlib import pyplot as plt
+
+# Suppress seaborn's internal deprecation warning about 'vert' parameter
+warnings.filterwarnings(
+    'ignore',
+    category=PendingDeprecationWarning,
+    message='vert: bool will be deprecated',
+    module='seaborn.categorical'
+)
 
 from evaluation.eval import eval_classifier, plot_classifier
 from run.run_utils import get_split_dict
@@ -153,20 +162,55 @@ class ClassifierPipeline:
         self.label_names = list(self.label_map.keys())
         logger.info(f"Label classes: {self.label_names}")
 
-    def get_splits_cv(self):
-        """Get cross-validation splits"""
-        cv = self.data_loader.cv_split_dict
-        n_splits = cv['n_splits']
-        id_column = cv['id_column']
+    def get_splits_cv(self, n_splits_default=5):
+        """Get cross-validation splits
+        
+        Args:
+            n_splits_default: Number of CV folds to generate if no predefined splits exist (default: 5)
+        """
+        # Use predefined CV splits if available
+        if hasattr(self.data_loader, 'cv_split_dict') and self.data_loader.cv_split_dict is not None:
+            cv = self.data_loader.cv_split_dict
+            n_splits = cv['n_splits']
+            id_column = cv['id_column']
 
-        train_ids_list = []
-        test_ids_list = []
-        for i in range(n_splits):
-            train_ids = cv[f'fold_{i+1}']['train_ids']
-            test_ids = cv[f'fold_{i+1}']['test_ids']
-            train_ids_list.append(train_ids)
-            test_ids_list.append(test_ids)
-        return id_column, n_splits, train_ids_list, test_ids_list
+            train_ids_list = []
+            test_ids_list = []
+            for i in range(n_splits):
+                train_ids = cv[f'fold_{i+1}']['train_ids']
+                test_ids = cv[f'fold_{i+1}']['test_ids']
+                train_ids_list.append(train_ids)
+                test_ids_list.append(test_ids)
+            logger.info(f"Using predefined CV splits: {n_splits} folds, id_column='{id_column}'")
+            return id_column, n_splits, train_ids_list, test_ids_list
+        
+        # Fallback: generate CV splits automatically using batch_key
+        if hasattr(self.data_loader, 'batch_key') and self.data_loader.batch_key is not None:
+            id_column = self.data_loader.batch_key
+            unique_batches = self.adata.obs[id_column].unique().tolist()
+            
+            # Use KFold to generate splits
+            kf = KFold(n_splits=n_splits_default, shuffle=True, random_state=42)
+            train_ids_list = []
+            test_ids_list = []
+            
+            for train_idx, test_idx in kf.split(unique_batches):
+                train_batches = [unique_batches[i] for i in train_idx]
+                test_batches = [unique_batches[i] for i in test_idx]
+                train_ids_list.append(train_batches)
+                test_ids_list.append(test_batches)
+            
+            logger.info(
+                f"Generated {n_splits_default}-fold CV splits automatically using batch_key '{id_column}': "
+                f"{len(unique_batches)} unique batches"
+            )
+            return id_column, n_splits_default, train_ids_list, test_ids_list
+        
+        # Last resort: raise an error
+        raise ValueError(
+            "No cv_splits or batch_key available for CV. "
+            "Please provide cv_splits or batch_key in the dataset configuration."
+        )
 
     def get_splits_loocv(self):
         """Get cross-validation splits"""
@@ -197,14 +241,64 @@ class ClassifierPipeline:
         return adata_train, adata_test
 
     def get_split_data(self):
-        """Get train-test split data"""
-        if hasattr(self.data_loader, 'train_test_split_dict'):
+        """Get train-test split data (single split, not CV)"""
+        if hasattr(self.data_loader, 'train_test_split_dict') and self.data_loader.train_test_split_dict is not None:
             split_dict = self.data_loader.train_test_split_dict
             test_ids = split_dict['train_test_split']['test_ids']
             train_ids = split_dict['train_test_split']['train_ids']
             id_column = split_dict['id_column']
-            logger.info(test_ids)
-        return id_column, train_ids, test_ids
+            # Ensure lists (JSON may have different types)
+            train_ids = list(train_ids) if not isinstance(train_ids, list) else train_ids
+            test_ids = list(test_ids) if not isinstance(test_ids, list) else test_ids
+            logger.info(f"Using train_test_split_dict: test_ids={test_ids}")
+            return id_column, train_ids, test_ids
+        
+        # Fallback: use CV splits if available (use first fold)
+        if hasattr(self.data_loader, 'cv_split_dict') and self.data_loader.cv_split_dict is not None:
+            cv = self.data_loader.cv_split_dict
+            id_column = cv['id_column']
+            train_ids = cv['fold_1']['train_ids']
+            test_ids = cv['fold_1']['test_ids']
+            # Ensure lists (JSON may have different types)
+            train_ids = list(train_ids) if not isinstance(train_ids, list) else train_ids
+            test_ids = list(test_ids) if not isinstance(test_ids, list) else test_ids
+            logger.info(f"Using CV split (fold_1) as single split: test_ids={test_ids}")
+            return id_column, train_ids, test_ids
+        
+        # Fallback: generate CV splits and use first fold, or create single split
+        if hasattr(self.data_loader, 'batch_key') and self.data_loader.batch_key is not None:
+            id_column = self.data_loader.batch_key
+            unique_batches = self.adata.obs[id_column].unique().tolist()
+            
+            # If CV is enabled, generate CV splits and use first fold
+            if self.cv:
+                _, _, train_ids_list, test_ids_list = self.get_splits_cv()
+                train_ids = train_ids_list[0]
+                test_ids = test_ids_list[0]
+                # Ensure lists (get_splits_cv should return lists, but be safe)
+                train_ids = list(train_ids) if not isinstance(train_ids, list) else train_ids
+                test_ids = list(test_ids) if not isinstance(test_ids, list) else test_ids
+                logger.info(f"Generated CV splits and using fold_1 as single split: {len(train_ids)} train, {len(test_ids)} test batches")
+            else:
+                # Create single train-test split
+                train_ids, test_ids = train_test_split(
+                    unique_batches, 
+                    test_size=0.2, 
+                    random_state=42,
+                    shuffle=True
+                )
+                # Convert to list if not already (train_test_split may return numpy arrays or lists)
+                train_ids = train_ids.tolist() if hasattr(train_ids, 'tolist') else list(train_ids)
+                test_ids = test_ids.tolist() if hasattr(test_ids, 'tolist') else list(test_ids)
+                logger.info(f"Created default split using batch_key '{id_column}': {len(train_ids)} train, {len(test_ids)} test batches")
+            
+            return id_column, train_ids, test_ids
+        
+        # Last resort: raise an error with helpful message
+        raise ValueError(
+            "No train_test_split, cv_splits, or batch_key available. "
+            "Please provide one of: train_test_split, cv_splits, or batch_key in the dataset configuration."
+        )
 
     def prepare_data(self, adata_train, adata_test, id_column):
         """Prepare data for training"""
@@ -229,14 +323,26 @@ class ClassifierPipeline:
             # Encode labels first (convert string labels to integers)
             self.label_key = loader.label_key
             self.encode_labels()
-            # Single split training
-            id_column, train_ids, test_ids = self.get_split_data()
-            adata_train, adata_test = self.split_data(
-                id_column, train_ids, test_ids)
-            adata_train, adata_test = self.prepare_data(
-                adata_train, adata_test, id_column)
-            self.__train_cell(adata_train, adata_test,
-                              evaluate=self.evaluate, viz=self.viz)
+            
+            # Support CV for cell-level predictions (splits at patient/batch level)
+            if self.cv:
+                # Get CV splits (at patient/batch level to avoid data leakage)
+                if self.cv == 'loocv':
+                    id_column, n_splits, train_ids_list, test_ids_list = self.get_splits_loocv()
+                else:
+                    id_column, n_splits, train_ids_list, test_ids_list = self.get_splits_cv()
+                
+                # Run CV for cell-level predictions
+                self.__train_cell_cv(id_column, n_splits, train_ids_list, test_ids_list)
+            else:
+                # Single split training
+                id_column, train_ids, test_ids = self.get_split_data()
+                adata_train, adata_test = self.split_data(
+                    id_column, train_ids, test_ids)
+                adata_train, adata_test = self.prepare_data(
+                    adata_train, adata_test, id_column)
+                self.__train_cell(adata_train, adata_test,
+                                  evaluate=self.evaluate, viz=self.viz)
 
     def train_sample(self, loader):
         """Main training pipeline"""
@@ -414,7 +520,7 @@ class ClassifierPipeline:
         # Plot metrics
         metrics.fillna(0, inplace=True)
         plt.figure(figsize=(10, 6))
-        sns.boxplot(x='Metrics', y=self.model_name, data=metrics)
+        sns.boxplot(x='Metrics', y=self.model_name, data=metrics, orientation='vertical')
         plt.title('Cross-Validation Metric Distribution')
         plt.ylim(0, 1.05)
         plt.xticks(rotation=45)
@@ -424,7 +530,7 @@ class ClassifierPipeline:
 
         metrics_train.fillna(0, inplace=True)
         plt.figure(figsize=(10, 6))
-        sns.boxplot(x='Metrics', y=self.model_name, data=metrics_train)
+        sns.boxplot(x='Metrics', y=self.model_name, data=metrics_train, orientation='vertical')
         plt.title('Cross-Validation Metric Distribution on Training set')
         plt.ylim(0, 1.05)
         plt.xticks(rotation=45)
@@ -466,19 +572,29 @@ class ClassifierPipeline:
                 emb = emb.toarray()
 
             # Validate sample-label consistency
+            # Check for samples with multiple labels (can happen in real data)
             label_counts = adata.obs.groupby('sample_id', observed=True)[
                 'label'].nunique()
-            if (label_counts > 1).any():
-                raise ValueError(
-                    f"Samples with multiple labels found: {label_counts[label_counts > 1].index.tolist()}")
+            samples_with_multiple_labels = label_counts[label_counts > 1]
+            
+            if len(samples_with_multiple_labels) > 0:
+                logger.warning(
+                    f"Found {len(samples_with_multiple_labels)} samples with multiple labels. "
+                    f"Using most frequent label for each sample. "
+                    f"Affected samples: {samples_with_multiple_labels.index.tolist()[:10]}"
+                    f"{'...' if len(samples_with_multiple_labels) > 10 else ''}"
+                )
 
             sample_ids = adata.obs['sample_id'].values
             df_emb = pd.DataFrame(emb, index=sample_ids)
 
             mean_emb = df_emb.groupby(df_emb.index, observed=True).mean()
 
-            labels = adata.obs[['sample_id', 'label']
-                               ].drop_duplicates().set_index('sample_id')
+            # Get labels - use mode (most frequent) for samples with multiple labels
+            labels = adata.obs.groupby('sample_id', observed=True)['label'].agg(
+                lambda x: x.mode()[0] if len(x.mode()) > 0 else x.iloc[0]
+            ).to_frame('label')
+            
             labels = labels.loc[labels.index.intersection(mean_emb.index)]
 
             return mean_emb.loc[labels.index], labels['label']
@@ -716,6 +832,167 @@ class ClassifierPipeline:
             return adata_train.obs, adata_test.obs, metrics_df_train, metrics_df_test, per_class_df_train, per_class_df_test
 
         return adata_test.obs, None, None, None, None, None
+
+    def __train_cell_cv(self, id_column, n_splits, train_ids_list, test_ids_list):
+        """Run cross-validation for cell-level predictions
+        
+        Splits are done at patient/batch level to avoid data leakage (all cells from 
+        the same patient stay in the same fold).
+        
+        Args:
+            id_column: Column name to use for splitting (e.g., 'sample_id', 'batch_key')
+            n_splits: Number of CV folds
+            train_ids_list: List of train ID lists for each fold
+            test_ids_list: List of test ID lists for each fold
+        """
+        pred_list = []
+        metrics_list = []
+        per_class_metrics_list = []
+        pred_list_train = []
+        metrics_list_train = []
+        per_class_metrics_list_train = []
+        
+        logger.info(f'Running cell-level cross-validation with {n_splits} folds (splitting by {id_column})')
+        
+        # Pre-validate all folds
+        logger.info('Validating CV folds...')
+        for i in range(n_splits):
+            train_ids, test_ids = train_ids_list[i], test_ids_list[i]
+            adata_train_check, adata_test_check = self.split_data(
+                id_column, train_ids, test_ids)
+            
+            # Check label distribution
+            unique_train = adata_train_check.obs[self.label_key].unique()
+            unique_test = adata_test_check.obs[self.label_key].unique()
+            
+            if len(unique_train) < len(self.label_names):
+                missing = set(self.label_names) - set(unique_train)
+                logger.warning(
+                    f"Fold {i+1}: Train set missing classes {missing}. "
+                    f"Present: {unique_train}, Expected: {self.label_names}"
+                )
+            
+            if len(unique_test) < len(self.label_names):
+                missing = set(self.label_names) - set(unique_test)
+                logger.warning(
+                    f"Fold {i+1}: Test set missing classes {missing}. "
+                    f"Present: {unique_test}, Expected: {self.label_names}"
+                )
+        
+        logger.info('Starting cell-level CV training...')
+        for i in range(n_splits):
+            logger.info(f'---------- Cell-level CV fold {i+1}/{n_splits} ----------')
+            train_ids, test_ids = train_ids_list[i], test_ids_list[i]
+            adata_train, adata_test = self.split_data(
+                id_column, train_ids, test_ids)
+            adata_train, adata_test = self.prepare_data(
+                adata_train, adata_test, id_column)
+            
+            # Train cell-level classifier on this fold
+            cell_pred_train, cell_pred_test, metrics_df_train, metrics_df_test, per_class_df_train, per_class_df_test = self.__train_cell(
+                adata_train, adata_test, evaluate=True, viz=False)
+            
+            # Add fold identifier
+            if metrics_df_test is not None:
+                metrics_df_test['fold'] = f'fold_{i+1}'
+                metrics_list.append(metrics_df_test)
+            if metrics_df_train is not None:
+                metrics_df_train['fold'] = f'fold_{i+1}'
+                metrics_list_train.append(metrics_df_train)
+            
+            if per_class_df_test is not None:
+                per_class_df_test['fold'] = f'fold_{i+1}'
+                per_class_metrics_list.append(per_class_df_test)
+            if per_class_df_train is not None:
+                per_class_df_train['fold'] = f'fold_{i+1}'
+                per_class_metrics_list_train.append(per_class_df_train)
+            
+            # Add fold to predictions
+            if cell_pred_test is not None:
+                cell_pred_test['fold'] = f'fold_{i+1}'
+                pred_list.append(cell_pred_test)
+            if cell_pred_train is not None:
+                cell_pred_train['fold'] = f'fold_{i+1}'
+                pred_list_train.append(cell_pred_train)
+        
+        # Aggregate results
+        if not metrics_list:
+            logger.warning("No metrics collected from CV folds")
+            return
+        
+        metrics = pd.concat(metrics_list)
+        metrics_train = pd.concat(metrics_list_train) if metrics_list_train else None
+        
+        # Aggregate overall metrics (mean ± std)
+        metrics_agg = pd.DataFrame({
+            'mean': metrics.groupby('Metrics')[self.model_name].mean(),
+            'std': metrics.groupby('Metrics')[self.model_name].std()
+        })
+        
+        if metrics_train is not None:
+            metrics_agg_train = pd.DataFrame({
+                'mean': metrics_train.groupby('Metrics')[self.model_name].mean(),
+                'std': metrics_train.groupby('Metrics')[self.model_name].std()
+            })
+        
+        # Aggregate per-class metrics if available
+        per_class_agg = None
+        per_class_agg_train = None
+        if per_class_metrics_list:
+            per_class_all = pd.concat(per_class_metrics_list)
+            per_class_mean = per_class_all.groupby('Metrics')[self.model_name].mean()
+            per_class_std = per_class_all.groupby('Metrics')[self.model_name].std()
+            per_class_agg = pd.DataFrame({
+                'mean': per_class_mean,
+                'std': per_class_std
+            })
+        if per_class_metrics_list_train:
+            per_class_all_train = pd.concat(per_class_metrics_list_train)
+            per_class_mean_train = per_class_all_train.groupby('Metrics')[self.model_name].mean()
+            per_class_std_train = per_class_all_train.groupby('Metrics')[self.model_name].std()
+            per_class_agg_train = pd.DataFrame({
+                'mean': per_class_mean_train,
+                'std': per_class_std_train
+            })
+        
+        # Save results
+        save_dir = join(self.saving_dir, 'cell_level_pred', 'cv')
+        plots_cv_dir = join(self.plots_dir, 'cell_level_pred', 'cv')
+        os.makedirs(save_dir, exist_ok=True)
+        os.makedirs(plots_cv_dir, exist_ok=True)
+        
+        if pred_list:
+            preds = pd.concat(pred_list)
+            preds.to_csv(join(save_dir, 'cell_cv_predictions.csv'))
+        if pred_list_train:
+            preds_train = pd.concat(pred_list_train)
+            preds_train.to_csv(join(save_dir, 'cell_cv_predictions_train.csv'))
+        
+        metrics.to_csv(join(save_dir, 'cell_cv_metrics.csv'))
+        metrics_agg.to_csv(join(save_dir, 'cell_cv_metrics_aggregated.csv'))
+        
+        if metrics_train is not None:
+            metrics_train.to_csv(join(save_dir, 'cell_cv_metrics_train.csv'))
+            metrics_agg_train.to_csv(join(save_dir, 'cell_cv_metrics_train_aggregated.csv'))
+        
+        if per_class_agg is not None:
+            per_class_agg.to_csv(join(save_dir, 'cell_cv_per_class_metrics_aggregated.csv'))
+        if per_class_agg_train is not None:
+            per_class_agg_train.to_csv(join(save_dir, 'cell_cv_per_class_metrics_train_aggregated.csv'))
+        
+        # Plot metrics distribution
+        metrics.fillna(0, inplace=True)
+        plt.figure(figsize=(10, 6))
+        sns.boxplot(x='Metrics', y=self.model_name, data=metrics, orientation='vertical')
+        plt.title('Cell-Level Cross-Validation Metric Distribution')
+        plt.ylim(0, 1.05)
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.savefig(join(plots_cv_dir, 'cell_cv_metrics_boxplot.png'))
+        plt.close()
+        
+        logger.info(f"Cell-level CV completed. Aggregated metrics saved to {save_dir}")
+        logger.info(f"Mean accuracy: {metrics_agg.loc['Accuracy', 'mean']:.4f} ± {metrics_agg.loc['Accuracy', 'std']:.4f}")
 
     def __train_vote(self, adata_train, adata_test, evaluate=False, viz=False):
         """Majority vote predictions training"""

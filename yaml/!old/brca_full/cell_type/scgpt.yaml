@@ -32,7 +32,7 @@ hvg:
     
 embedding:
     method: scgpt
-    module: features.scgpt_extractor
+    module: extractors.scgpt_extractor
     class: scGPT_Exractor
     viz: True
     eval: True

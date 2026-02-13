@@ -1,3 +1,11 @@
+"""
+Embedding visualization (UMAP, PCA) for method embeddings.
+
+This module produces UMAP plots colored by batch and label only. Batch-effect
+metric values (ASW_batch, iLISI, cLISI, etc.) are not plotted here; they are
+shown in original range and direction in the summarizer boxplots and tables
+(see utils/results_summarizer.py and utils/boxplot_generator.py).
+"""
 from pathlib import Path
 import pandas as pd
 from matplotlib import pyplot as plt
@@ -98,48 +106,81 @@ class EmbeddingVisualizer:
 
     def compute_pca_umap(self, adata_original):
         '''
-        Compute PCA and UMAP on original adata.
+        Compute PCA on original adata (with subsampling for large datasets).
         This is dataset-dependent, not method-dependent.
         
         Computes:
-        1. X_pca: PCA on original expression data
-        2. X_umap: UMAP on original expression data (neighbors on X)
-        3. X_pca_umap: UMAP on PCA of original expression data (neighbors on X_pca)
+        1. X_pca: PCA on original expression data (subsampled if dataset is large)
+        
+        Note: UMAP on original data is skipped to save computation time.
         '''
         # 1. Compute PCA on original expression data (if not already computed)
         if 'X_pca' not in adata_original.obsm:
             logger.info('Computing PCA on original expression data (dataset-dependent)')
-            sc.tl.pca(adata_original, n_comps=50)
-            logger.info('Saved PCA to X_pca in original adata')
+            
+            # Subsample if dataset is large to speed up PCA computation
+            n_cells = adata_original.n_obs
+            max_cells_for_pca = 50000  # Subsample if more than 50k cells
+            
+            if n_cells > max_cells_for_pca:
+                logger.info(f'Dataset has {n_cells} cells. Subsample to {max_cells_for_pca} for PCA computation.')
+                # Import for sparse matrix handling
+                from scipy import sparse
+                import numpy as np
+                
+                # Create a subsampled copy for PCA computation
+                adata_subsampled = sample_adata(adata_original, sample_size=max_cells_for_pca, stratify_by=None)
+                
+                # Compute mean from subsampled data (matching scanpy's zero_center=True behavior)
+                # This mean will be used to center both subsample (via sc.tl.pca) and full dataset
+                X_subsampled = adata_subsampled.X
+                if sparse.issparse(X_subsampled):
+                    # For sparse matrices, compute mean efficiently without full conversion
+                    # Mean = sum / count, where count accounts for zeros
+                    pca_mean = np.array(X_subsampled.mean(axis=0)).flatten()
+                else:
+                    pca_mean = X_subsampled.mean(axis=0)
+                
+                # Compute PCA on subsample (scanpy will center internally using zero_center=True by default)
+                # Note: sc.tl.pca centers the data internally, so the mean we computed should match
+                sc.tl.pca(adata_subsampled, n_comps=50, zero_center=True)
+                
+                # Get the PCA components from the subsample
+                # These are stored in adata_subsampled.varm['PCs']
+                pca_model = adata_subsampled.varm['PCs']  # Already a numpy array
+                
+                # Apply PCA transformation to full dataset
+                # Use math trick: (X - mean) @ PCs = X @ PCs - mean @ PCs
+                # This avoids converting sparse to dense (centering destroys sparsity)
+                X_full = adata_original.X
+                
+                # Precompute the mean projection (small vector of size n_pcs)
+                mean_projection = pca_mean @ pca_model  # shape: (n_pcs,)
+                
+                logger.info(f'Projecting {n_cells} cells onto PCA (keeping sparse)')
+                
+                if sparse.issparse(X_full):
+                    # Sparse @ dense multiplication is efficient and memory-friendly
+                    X_pca_full = X_full @ pca_model - mean_projection
+                else:
+                    X_pca_full = np.asarray(X_full) @ pca_model - mean_projection
+                
+                X_pca_full = X_pca_full.astype(np.float32)
+                
+                # Store in original adata
+                adata_original.obsm['X_pca'] = X_pca_full
+                # Also store the PCA model components for potential reuse
+                adata_original.varm['PCs'] = pca_model
+                adata_original.var['mean'] = pd.Series(pca_mean, index=adata_original.var.index)
+                
+                logger.info(f'Saved PCA to X_pca in original adata (computed on {max_cells_for_pca} subsampled cells, applied to all {n_cells} cells)')
+            else:
+                sc.tl.pca(adata_original, n_comps=50)
+                logger.info('Saved PCA to X_pca in original adata')
         else:
             logger.info('PCA on original data already exists in dataset, skipping computation')
         
-        # 2. Compute UMAP on original expression data X (if not already computed)
-        if 'X_umap' not in adata_original.obsm:
-            logger.info('Computing UMAP on original expression data X (dataset-dependent)')
-            sc.pp.neighbors(adata_original, use_rep='X')
-            sc.tl.umap(adata_original)
-            logger.info('Saved UMAP to X_umap in original adata (neighbors on X)')
-        else:
-            logger.info('UMAP on original data (X_umap) already exists in dataset, skipping computation')
-        
-        # 3. Compute UMAP on PCA of original expression data (if not already computed)
-        if 'X_pca_umap' not in adata_original.obsm:
-            if 'X_pca' in adata_original.obsm:
-                logger.info('Computing UMAP on PCA of original expression data (dataset-dependent)')
-                existing_X_umap = adata_original.obsm.get('X_umap', None)
-                sc.pp.neighbors(adata_original, use_rep='X_pca')
-                sc.tl.umap(adata_original)
-                adata_original.obsm['X_pca_umap'] = adata_original.obsm['X_umap'].copy()
-                if existing_X_umap is not None:
-                    adata_original.obsm['X_umap'] = existing_X_umap
-                else:
-                    adata_original.obsm.pop('X_umap', None)
-                logger.info('Saved UMAP to X_pca_umap in original adata (neighbors on X_pca)')
-            else:
-                logger.warning('Cannot compute X_pca_umap: X_pca not found')
-        else:
-            logger.info('UMAP on PCA data (X_pca_umap) already exists in dataset, skipping computation')
+        # UMAP on original data is skipped to save computation time
 
     def save_pca_umap_to_adata(self, adata_original, cache_path=None):
         '''
@@ -195,24 +236,13 @@ class EmbeddingVisualizer:
             if adata_embedding.shape[0] > 10000:
                 adata_embedding = sample_adata(adata_embedding, sample_size=5000, stratify_by=None)
         
-        # Compute neighbors and UMAP on embeddings
-        logger.info('Computing neighbors and UMAP on method embeddings')
+        # Compute neighbors and UMAP on (subsampled) embeddings for visualization
+        logger.info(f'Computing neighbors and UMAP on embeddings ({adata_embedding.shape[0]} cells)')
         sc.pp.neighbors(adata_embedding, use_rep='X')
         sc.tl.umap(adata_embedding)
         
-        # Save UMAP on embeddings to original adata if requested
-        if save_to_adata and adata_original is not None and embedding_key is not None:
-            umap_embedding_key = f'X_umap_{embedding_key}'
-            # Compute on full dataset (not subsampled)
-            if adata_original.shape[0] == self.embedding.shape[0]:
-                adata_embedding_full = ad.AnnData(X=self.embedding)
-                adata_embedding_full.obs = adata_original.obs.copy()
-                sc.pp.neighbors(adata_embedding_full, use_rep='X')
-                sc.tl.umap(adata_embedding_full)
-                adata_original.obsm[umap_embedding_key] = adata_embedding_full.obsm['X_umap']
-                logger.info(f'Saved UMAP on embeddings to {umap_embedding_key} in original adata')
-            else:
-                logger.warning(f'Cannot save full UMAP: embedding shape {self.embedding.shape[0]} != adata shape {adata_original.shape[0]}')
+        # Note: Full UMAP on all cells is skipped for large datasets (too slow, not needed for viz)
+        # If full UMAP is needed, compute it separately with appropriate subsampling
 
         # Generate plots using subsampled data for visualization
         if 'batch' in adata_embedding.obs.columns:

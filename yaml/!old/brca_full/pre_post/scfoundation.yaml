@@ -30,7 +30,7 @@ hvg:
 embedding:
     load_cashed: False
     method: scfoundation
-    module: features.scf_extractor
+    module: extractors.scf_extractor
     class: scfoundationExtractor
     viz: True
     eval: True

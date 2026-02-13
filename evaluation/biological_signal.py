@@ -1,28 +1,37 @@
 """
 Biological signal evaluation module.
 
-Evaluates how well embeddings preserve biological structure (cell types, clusters).
+Evaluates how well embeddings preserve biological structure via NMI and ARI
+from the scib_metrics Leiden pipeline (pynndescent + Leiden clustering).
+
+Single label (one cell type): NMI and ARI are not meaningful — they compare true
+labels to Leiden clusters. With one true label, entropy of true partition is 0;
+NMI/ARI become 0 (if Leiden finds multiple clusters) or 1 (if one cluster), neither
+measures "biological signal preservation". We skip them (set to NaN) when
+label_key has only one unique value.
 """
 from pathlib import Path
 from typing import Dict
 from anndata import AnnData
 import numpy as np
-import scanpy as sc
-import scib
 import pandas as pd
 from utils.logs_ import get_logger
 
 logger = get_logger()
 
+# Optional: scib_metrics provides NMI/ARI with Leiden clustering (pynndescent + Leiden)
+try:
+    import scib_metrics  # type: ignore
+except ImportError:
+    scib_metrics = None  # type: ignore
+
 
 class BiologicalSignalEvaluator:
     """
     Evaluates biological signal preservation in embeddings.
-    
-    Computes metrics that measure:
-    - Clustering quality (NMI, ARI)
-    - Cell type separation (ASW_label)
-    - Graph connectivity (preservation of cell type neighborhoods)
+
+    Computes only NMI and ARI from the scib_metrics Leiden pipeline
+    (pynndescent n_neighbors=90 + Leiden), plus avg_bio (mean of nmi and ari scaled to [0, 1]).
     """
     
     def __init__(
@@ -79,95 +88,64 @@ class BiologicalSignalEvaluator:
             adata_eval = sample_adata(self.adata, sample_size=5000, stratify_by=None)
         else:
             adata_eval = self.adata.copy()
-        
-        results_dict = {}
-        
-        # Ensure neighbors are computed on the correct embedding
-        if "neighbors" in adata_eval.uns:
-            logger.info(f"Recomputing neighbors for embedding: {self.embedding_key}")
-            adata_eval.uns.pop("neighbors", None)
-        
-        # Build k-nearest neighbor graph
-        sc.pp.neighbors(
-            adata_eval,
-            use_rep=self.embedding_key,
-            n_neighbors=self.n_neighbors,
-            metric=self.metric,
-            random_state=0
-        )
-        
-        # Perform Leiden clustering
-        logger.info(f'Computing Leiden clustering (resolution={self.leiden_resolution})...')
-        sc.tl.leiden(
-            adata_eval,
-            key_added="cluster",
-            resolution=self.leiden_resolution,
-            random_state=0
-        )
-        
-        # 1. NMI_cluster/label: Normalized Mutual Information
-        # Measures agreement between clusters and true labels
-        logger.info('Computing NMI_cluster/label...')
-        try:
-            results_dict["NMI_cluster/label"] = scib.metrics.nmi(
-                adata_eval,
-                "cluster",
-                self.label_key,
-                "arithmetic",
-                nmi_dir=None
+
+        # Coerce labels to string and drop cells with NaN in embedding or labels (avoids NMI/ARI errors)
+        if self.label_key in adata_eval.obs:
+            adata_eval.obs[self.label_key] = (
+                adata_eval.obs[self.label_key]
+                .fillna('_missing_')
+                .astype(str)
+                .replace('nan', '_missing_')
             )
-        except Exception as e:
-            logger.warning(f"NMI computation failed: {e}")
-            results_dict["NMI_cluster/label"] = np.nan
-        
-        # 2. ARI_cluster/label: Adjusted Rand Index
-        # Measures agreement between clusters and true labels
-        logger.info('Computing ARI_cluster/label...')
-        try:
-            results_dict["ARI_cluster/label"] = scib.metrics.ari(
-                adata_eval,
-                "cluster",
-                self.label_key
-            )
-        except Exception as e:
-            logger.warning(f"ARI computation failed: {e}")
-            results_dict["ARI_cluster/label"] = np.nan
-        
-        # 3. ASW_label: Average Silhouette Width for labels
-        # Measures cell type separation in embedding space
-        logger.info('Computing ASW_label...')
-        try:
-            results_dict["ASW_label"] = scib.metrics.silhouette(
-                adata_eval,
-                self.label_key,
-                self.embedding_key,
-                self.metric
-            )
-        except Exception as e:
-            logger.warning(f"ASW_label computation failed: {e}")
-            results_dict["ASW_label"] = np.nan
-        
-        # 4. graph_conn: Graph connectivity
-        # Measures fraction of cells that remain connected to their cell type
-        logger.info('Computing graph_conn...')
-        try:
-            results_dict["graph_conn"] = scib.metrics.graph_connectivity(
-                adata_eval,
-                label_key=self.label_key
-            )
-        except Exception as e:
-            logger.warning(f"graph_conn computation failed: {e}")
-            results_dict["graph_conn"] = np.nan
-        
-        # Compute summary score (average of biological metrics)
-        valid_metrics = [
-            results_dict.get("NMI_cluster/label"),
-            results_dict.get("ARI_cluster/label"),
-            results_dict.get("ASW_label")
-        ]
-        valid_metrics = [v for v in valid_metrics if not np.isnan(v)]
-        if valid_metrics:
-            results_dict["avg_bio"] = np.mean(valid_metrics)
+        emb = np.asarray(adata_eval.obsm[self.embedding_key])
+        valid = ~(np.isnan(emb).any(axis=1) | np.isinf(emb).any(axis=1))
+        if not valid.all():
+            adata_eval = adata_eval[valid].copy()
+        results_dict: Dict[str, float] = {}
+        if adata_eval.n_obs == 0:
+            logger.warning('No valid cells after dropping NaN/Inf in embedding. Skipping NMI/ARI.')
+        else:
+            # NMI and ARI require at least two distinct labels (cell types) to be meaningful.
+            # With one label, they degenerate to 0 or 1 and do not measure biological preservation.
+            n_labels = adata_eval.obs[self.label_key].nunique()
+            if n_labels <= 1:
+                logger.warning(
+                    f"Only {n_labels} unique value(s) in '{self.label_key}'. "
+                    "Skipping NMI/ARI (not defined for single cell type)."
+                )
+                results_dict["nmi"] = np.nan
+                results_dict["ari"] = np.nan
+            elif scib_metrics is not None:
+                logger.info('Computing NMI and ARI (Leiden)...')
+                try:
+                    emb = np.asarray(adata_eval.obsm[self.embedding_key])
+                    neigh_result_90 = scib_metrics.nearest_neighbors.pynndescent(
+                        emb, n_neighbors=90, random_state=0
+                    )
+                    nmi_ari_dict = scib_metrics.nmi_ari_cluster_labels_leiden(
+                        neigh_result_90,
+                        adata_eval.obs[self.label_key].values,
+                    )
+                    results_dict["nmi"] = float(nmi_ari_dict["nmi"])
+                    results_dict["ari"] = float(nmi_ari_dict["ari"])
+                except Exception as e:
+                    logger.warning(f"NMI/ARI (Leiden) computation failed: {e}")
+                    results_dict["nmi"] = np.nan
+                    results_dict["ari"] = np.nan
+            else:
+                results_dict["nmi"] = np.nan
+                results_dict["ari"] = np.nan
+
+        # avg_bio: mean of nmi and ari scaled to [0, 1] (1=best)
+        scaled = []
+        nmi = results_dict.get("nmi")
+        if not np.isnan(nmi):
+            scaled.append(float(nmi))
+        ari = results_dict.get("ari")
+        if not np.isnan(ari):
+            scaled.append((float(ari) + 1.0) / 2.0)  # [-1, 1] -> [0, 1]
+        if scaled:
+            results_dict["avg_bio"] = float(np.mean(scaled))
         
         # Remove NaN values
         results_dict = {k: v for k, v in results_dict.items() if not np.isnan(v)}

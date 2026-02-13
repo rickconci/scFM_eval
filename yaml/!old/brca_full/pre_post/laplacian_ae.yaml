@@ -22,7 +22,7 @@ preprocessing:
 
 embedding:
   method: laplacian_ae
-  module: features.laplacian_ae_extractor
+  module: extractors.laplacian_ae_extractor
   class: LaplacianAEExtractor
   params:
     checkpoint_path: /lotterlab/datasets/VCC/ML_OUTPUTS/SC_FM/laplacian_ae/cxg_subset/last.ckpt

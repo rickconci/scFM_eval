@@ -31,7 +31,7 @@ preprocessing:
 
 embedding:
     method: PCA
-    module: features.pca_extractor
+    module: extractors.pca_extractor
     class: PCAEmbeddingExtractor
     viz: True
     eval: True
