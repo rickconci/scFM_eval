@@ -12,7 +12,7 @@ Setup:
     # For CUDA 12.1, use: --index-url https://download.pytorch.org/whl/cu121
     pip install torch torchvision torchtext --index-url https://download.pytorch.org/whl/cu128
     pip install scanpy anndata numpy scipy pandas tqdm safetensors
-    pip install -e /lotterlab/users/riccardo/ML_BIO/Bio_FMs/RNA/scGPT
+    pip install -e ${SCGPT_REPO_PATH}   # set SCGPT_REPO_PATH in .env
 
 Usage:
     python extract.py --input data.h5ad --output embeddings.npy \
@@ -22,6 +22,7 @@ Usage:
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -33,12 +34,12 @@ from scipy.sparse import issparse
 from tqdm import tqdm
 
 # IMPORTANT: Add scGPT source directory FIRST (before extractors/) to avoid name collision.
-# The extractors/scgpt/ directory would otherwise shadow the real 'scgpt' package.
-SCGPT_SRC_PATH = "/lotterlab/users/riccardo/ML_BIO/Bio_FMs/RNA/scGPT"
-# Remove if already present (e.g., from .pth file) so we can re-insert at position 0
-if SCGPT_SRC_PATH in sys.path:
+# Set SCGPT_REPO_PATH in .env to your scGPT repo path.
+SCGPT_SRC_PATH = os.environ.get("SCGPT_REPO_PATH", "")
+if SCGPT_SRC_PATH and SCGPT_SRC_PATH in sys.path:
     sys.path.remove(SCGPT_SRC_PATH)
-sys.path.insert(0, SCGPT_SRC_PATH)
+if SCGPT_SRC_PATH:
+    sys.path.insert(0, SCGPT_SRC_PATH)
 
 # Add parent to path for base module (this adds extractors/ to path, at position 1)
 sys.path.insert(1, str(Path(__file__).parent.parent))

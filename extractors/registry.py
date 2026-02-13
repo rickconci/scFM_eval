@@ -34,9 +34,10 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-# Base paths
+# Base paths (CHECKPOINTS_BASE from setup_path so it reads .env)
+from setup_path import CHECKPOINTS_BASE
+
 EXTRACTORS_DIR = Path(__file__).parent
-CHECKPOINTS_BASE = Path("/lotterlab/datasets/VCC/MODEL_CHECKPOINTS/SC_FM_repo_checkpoints")
 
 
 # =============================================================================
@@ -137,7 +138,6 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     # =========================================================================
     # Foundation Models (checkpoint-based, base env compatible)
     # =========================================================================
-    # Checkpoint dir: /lotterlab/datasets/VCC/MODEL_CHECKPOINTS/SC_FM_repo_checkpoints/scFoundation
     "scfoundation": {
         "class_name": "scFoundationExtractor",
         "module": "scfoundation.extract",

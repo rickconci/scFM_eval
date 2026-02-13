@@ -1,20 +1,32 @@
 """
 Utility functions for experiment runner.
 """
-import yaml
+import os
+import glob
+import random
+import shutil
+import tempfile
 import time
 from functools import wraps
-import random
+from pathlib import Path
+from typing import Any, Dict, Tuple
+
 import numpy as np
 import torch
-from typing import Tuple, Dict, Any
-import os
-from pathlib import Path
-import glob
-import shutil
-import multiprocessing
-import tempfile
+import yaml
+
 from setup_path import TEMP_PATH
+
+
+def _expand_env_in_config(obj: Any) -> Any:
+    """Recursively expand ${VAR} and $VAR in string values using os.environ."""
+    if isinstance(obj, dict):
+        return {k: _expand_env_in_config(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_expand_env_in_config(v) for v in obj]
+    if isinstance(obj, str):
+        return os.path.expandvars(obj)
+    return obj
 
 # Module directory path
 dir_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -166,7 +178,7 @@ def get_configs(config_path: str) -> Tuple[Any, ...]:
     Raises:
         ValueError: If the file is empty or does not contain a valid YAML mapping.
     """
-    with open(config_path, 'r') as file:
+    with open(config_path, "r") as file:
         config = yaml.safe_load(file)
 
     if config is None or not isinstance(config, dict):
@@ -175,7 +187,9 @@ def get_configs(config_path: str) -> Tuple[Any, ...]:
             "Ensure the file contains key-value pairs (e.g. run_id, dataset, embedding, evaluations)."
         )
 
-    run_id = config.get('run_id', None)
+    config = _expand_env_in_config(config)
+
+    run_id = config.get("run_id", None)
     data_config = config.get('dataset', {})
     qc_config = config.get('qc', {})
     preproc_config = config.get('preprocessing', {})
@@ -198,7 +212,7 @@ def get_experiment_type(config_path: str) -> str:
         - 'default': Standard single-method experiment (default)
         - 'synthetic_benchmark': Multi-method synthetic data benchmark
     """
-    with open(config_path, 'r') as file:
+    with open(config_path, "r") as file:
         config = yaml.safe_load(file)
 
     if config is None or not isinstance(config, dict):
@@ -206,7 +220,8 @@ def get_experiment_type(config_path: str) -> str:
             f"Config file is empty or invalid: {config_path}. "
             "Cannot determine experiment_type."
         )
-    return config.get('experiment_type', 'default')
+    config = _expand_env_in_config(config)
+    return config.get("experiment_type", "default")
 
 
 def get_embedding_key(feat_config: Dict[str, Any]) -> str:

@@ -31,7 +31,7 @@ embedding:
       class: scConceptExtractor
       params:
         model_name: Corpus-30M
-        cache_dir: /lotterlab/datasets/VCC/MODEL_CHECKPOINTS/SC_FM_repo_checkpoints/scConcept
+        cache_dir: ${VCC_CHECKPOINTS_BASE}/scConcept
         batch_size: 32
         gene_id_column: gene_ids
         repo_id: theislab/scConcept
@@ -41,7 +41,7 @@ embedding:
       module: extractors.scimilarity_extractor
       class: SCimilarityExtractor
       params:
-        model_path: /lotterlab/datasets/VCC/MODEL_CHECKPOINTS/SC_FM_repo_checkpoints/SCSimilarity/model_v1.1
+        model_path: ${VCC_CHECKPOINTS_BASE}/SCSimilarity/model_v1.1
         batch_size: 32
         use_gpu: True
 

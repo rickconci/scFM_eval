@@ -2,7 +2,7 @@ run_id: null
 dataset:
   module: data.depmap_loader
   class: DepMapLoader
-  path: /lotterlab/datasets/VCC/DATASETS/SCFM_datasets/EvalDatasets/cancer_benchmarking/Depmap/Depmap_bulk_rna_drug_auc_subsampled10.h5ad
+  path: ${VCC_DATA}/DATASETS/SCFM_datasets/EvalDatasets/cancer_benchmarking/Depmap/Depmap_bulk_rna_drug_auc_subsampled10.h5ad
   load_raw: false
   cell_line_col: depmap_id
   drug_col: broad_id
@@ -33,8 +33,8 @@ embedding:
   viz: false
   eval: true
   params:
-    checkpoint_path: /lotterlab/datasets/VCC/MODEL_CHECKPOINTS/SC_FM_repo_checkpoints/STACK/ablation/E0_baseline/last.ckpt
-    genelist_path: /lotterlab/datasets/VCC/MODEL_CHECKPOINTS/SC_FM_repo_checkpoints/STACK/basecount_1000per_15000max.pkl
+    checkpoint_path: ${VCC_CHECKPOINTS_BASE}/STACK/ablation/E0_baseline/last.ckpt
+    genelist_path: ${VCC_CHECKPOINTS_BASE}/STACK/basecount_1000per_15000max.pkl
     batch_size: 32
     device: auto
     gene_name_col: null

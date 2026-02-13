@@ -15,7 +15,7 @@ dataset:
   module: data.depmap_loader
   class: DepMapLoader
   # Subsampled 1/10 (run scripts/subsample_depmap.py once if missing)
-  path: /lotterlab/datasets/VCC/DATASETS/SCFM_datasets/EvalDatasets/cancer_benchmarking/Depmap/Depmap_bulk_rna_drug_auc_subsampled10.h5ad
+  path: ${VCC_DATA}/DATASETS/SCFM_datasets/EvalDatasets/cancer_benchmarking/Depmap/Depmap_bulk_rna_drug_auc_subsampled10.h5ad
   load_raw: False
   # DepMap-specific columns
   cell_line_col: depmap_id
@@ -54,7 +54,7 @@ embedding:
   eval: true
   params:
     model_name: Corpus-30M
-    cache_dir: /lotterlab/datasets/VCC/MODEL_CHECKPOINTS/SC_FM_repo_checkpoints/scConcept
+    cache_dir: ${VCC_CHECKPOINTS_BASE}/scConcept
     batch_size: 64
     gene_id_column: gene_id
     repo_id: theislab/scConcept

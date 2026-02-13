@@ -7,7 +7,7 @@ run_id: null
 dataset:
   module: data.data_loader
   class: H5ADLoader
-  path: /lotterlab/datasets/VCC/DATASETS/SCFM_datasets/EvalDatasets/cancer_benchmarking/TCGA_outcomes/TCGA_PANCAN_outcomes.h5ad
+  path: ${VCC_DATA}/DATASETS/SCFM_datasets/EvalDatasets/cancer_benchmarking/TCGA_outcomes/TCGA_PANCAN_outcomes.h5ad
   load_raw: false
   layer_name: X
   label_key: cancer type abbreviation

@@ -31,7 +31,7 @@ embedding:
   viz: true
   eval: true
   params:
-    model_dir: /lotterlab/datasets/VCC/MODEL_CHECKPOINTS/SC_FM_repo_checkpoints/scGPT
+    model_dir: ${VCC_CHECKPOINTS_BASE}/scGPT
     model_name: scGPT_human
     batch_size: 32
     n_bins: 51

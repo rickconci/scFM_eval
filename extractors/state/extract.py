@@ -15,7 +15,7 @@ Setup:
     pip install torch>=2.0.0
     pip install scipy>=1.15.0  # STATE requires newer scipy
     pip install scanpy anndata numpy pandas tqdm transformers peft hydra-core wandb
-    pip install -e /lotterlab/users/riccardo/ML_BIO/Bio_FMs/RNA/state
+    pip install -e ${STATE_REPO_PATH}   # set STATE_REPO_PATH in .env to your STATE repo path
 
 Usage:
     python extract.py --input data.h5ad --output embeddings.npy \

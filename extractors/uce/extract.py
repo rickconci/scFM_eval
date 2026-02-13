@@ -11,11 +11,11 @@ Setup:
     pip install torch>=2.0.0
     pip install scanpy anndata numpy scipy pandas tqdm accelerate requests
     
-    # Add UCE to PYTHONPATH (do this before running)
-    export PYTHONPATH="/lotterlab/users/riccardo/ML_BIO/Bio_FMs/RNA/UCE:$PYTHONPATH"
+    # Add UCE to PYTHONPATH (set UCE_REPO_PATH in .env)
+    export PYTHONPATH="${UCE_REPO_PATH}:$PYTHONPATH"
 
 Usage:
-    export PYTHONPATH="/lotterlab/users/riccardo/ML_BIO/Bio_FMs/RNA/UCE:$PYTHONPATH"
+    export PYTHONPATH="${UCE_REPO_PATH}:$PYTHONPATH"
     python extract.py --input data.h5ad --output embeddings.npy \
         --model_dir /path/to/UCE --species human
 """
@@ -35,9 +35,9 @@ import torch
 from scipy.sparse import issparse
 from tqdm import tqdm
 
-# Add UCE to path
-UCE_PATH = "/lotterlab/users/riccardo/ML_BIO/Bio_FMs/RNA/UCE"
-if UCE_PATH not in sys.path:
+# Add UCE to path (set UCE_REPO_PATH in .env)
+UCE_PATH = os.environ.get("UCE_REPO_PATH", "")
+if UCE_PATH and UCE_PATH not in sys.path:
     sys.path.insert(0, UCE_PATH)
 
 # Add parent to path for base module
@@ -96,8 +96,7 @@ class UCEExtractor(BaseExtractor):
             from model import TransformerModel
         except ImportError:
             raise ImportError(
-                "UCE model.py not found. Add UCE to PYTHONPATH:\n"
-                "export PYTHONPATH='/lotterlab/users/riccardo/ML_BIO/Bio_FMs/RNA/UCE:$PYTHONPATH'"
+                "UCE model.py not found. Set UCE_REPO_PATH in .env and add to PYTHONPATH."
             )
         
         logger.info(f"Loading UCE model from {self.model_dir}")

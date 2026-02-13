@@ -5,7 +5,7 @@ dataset:
   module: data.data_loader
   class: H5ADLoader
   path: DATASETS/SCFM_datasets/EvalDatasets/cell_batch_real/single_cell_PMBC_methods_comparison/SCP424/scp424_adata.h5ad
-  #/lotterlab/datasets/VCC/DATASETS/SCFM_datasets/EvalDatasets/cell_batch_real/single_cell_PMBC_methods_comparison/SCP424/scp424_adata.h5ad
+  #${VCC_DATA}/DATASETS/SCFM_datasets/EvalDatasets/cell_batch_real/single_cell_PMBC_methods_comparison/SCP424/scp424_adata.h5ad
   load_raw: false
   label_key: CellType  # SCP424 metadata uses CellType (not cell_type)
   batch_key: Method #this is actually by sequencing technology
@@ -33,7 +33,7 @@ embedding:
   eval: true
   params:
     model_name: Corpus-30M
-    cache_dir: /lotterlab/datasets/VCC/MODEL_CHECKPOINTS/SC_FM_repo_checkpoints/scConcept
+    cache_dir: ${VCC_CHECKPOINTS_BASE}/scConcept
     batch_size: 32
     gene_id_column: gene_id
     repo_id: theislab/scConcept

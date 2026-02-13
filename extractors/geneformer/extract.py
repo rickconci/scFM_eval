@@ -10,7 +10,7 @@ Setup:
     pip install torch>=2.0.0
     pip install transformers>=4.30.0,<4.52.0 "huggingface-hub>=0.14.1,<1.0"
     pip install scanpy anndata numpy scipy pandas tqdm datasets
-    pip install -e /lotterlab/users/riccardo/ML_BIO/Bio_FMs/RNA/Geneformer
+    pip install -e ${GENEFORMER_REPO_PATH}   # set GENEFORMER_REPO_PATH in .env
 
 Usage:
     python extract.py --input data.h5ad --output embeddings.npy \
@@ -35,10 +35,10 @@ from tqdm import trange
 _extractors_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_extractors_dir))
 
-# Ensure the real Geneformer package is found (extractors/geneformer/ would shadow it)
-_GENEFORMER_REPO = Path("/lotterlab/users/riccardo/ML_BIO/Bio_FMs/RNA/Geneformer")
-if _GENEFORMER_REPO.exists():
-    sys.path.insert(0, str(_GENEFORMER_REPO))
+# Ensure the real Geneformer package is found (set GENEFORMER_REPO_PATH in .env)
+_GENEFORMER_REPO = os.environ.get("GENEFORMER_REPO_PATH")
+if _GENEFORMER_REPO and Path(_GENEFORMER_REPO).exists():
+    sys.path.insert(0, _GENEFORMER_REPO)
 from base_extract import (
     BaseExtractor,
     create_argument_parser,

@@ -5,7 +5,7 @@ run_id: null
 dataset:
   module: data.depmap_loader
   class: DepMapLoader
-  path: /lotterlab/datasets/VCC/DATASETS/SCFM_datasets/EvalDatasets/cancer_benchmarking/Depmap/Depmap_bulk_rna_drug_auc_subsampled10.h5ad
+  path: ${VCC_DATA}/DATASETS/SCFM_datasets/EvalDatasets/cancer_benchmarking/Depmap/Depmap_bulk_rna_drug_auc_subsampled10.h5ad
   load_raw: False
   cell_line_col: depmap_id
   drug_col: broad_id
@@ -40,7 +40,7 @@ embedding:
   viz: false
   eval: true
   params:
-    model_dir: /lotterlab/datasets/VCC/MODEL_CHECKPOINTS/SC_FM_repo_checkpoints/scGPT
+    model_dir: ${VCC_CHECKPOINTS_BASE}/scGPT
     model_name: scGPT_human
     batch_size: 32
     n_bins: 51

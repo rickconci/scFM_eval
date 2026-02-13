@@ -7,7 +7,7 @@ run_id: null
 dataset:
   module: data.data_loader
   class: H5ADLoader
-  path: /lotterlab/datasets/VCC/DATASETS/SCFM_datasets/EvalDatasets/cancer_benchmarking/TCGA_outcomes/TCGA_PANCAN_outcomes.h5ad
+  path: ${VCC_DATA}/DATASETS/SCFM_datasets/EvalDatasets/cancer_benchmarking/TCGA_outcomes/TCGA_PANCAN_outcomes.h5ad
   load_raw: false
   layer_name: X
   label_key: cancer type abbreviation
@@ -40,7 +40,7 @@ embedding:
   eval: true
   params:
     model_name: Corpus-30M
-    cache_dir: /lotterlab/datasets/VCC/MODEL_CHECKPOINTS/SC_FM_repo_checkpoints/scConcept
+    cache_dir: ${VCC_CHECKPOINTS_BASE}/scConcept
     batch_size: 64
     gene_id_column: gene_id
     repo_id: theislab/scConcept
