@@ -209,11 +209,12 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
         "module": "omnicell.extract",
         "needs_separate_env": False,
         "needs_training": False,
-        "checkpoint_dir": "VCC_checkpoints",
+        "checkpoint_dir": "Omnicell",
         "default_params": {
-            "checkpoint_path": str(
-                Path(_os.environ.get("VCC_OMNICELL_CHECKPOINTS_BASE", str(CHECKPOINTS_BASE)))
-                / "VCC_checkpoints" / "omnicell_checkpoint_epoch27.pt"
+            "checkpoint_path": _os.environ.get("OMNICELL_CHECKPOINT_PATH")
+            or str(
+                Path(_os.environ.get("OMNICELL_CHECKPOINTS_BASE", str(CHECKPOINTS_BASE)))
+                / "Omnicell" / "omnicell_checkpoint_epoch27.pt"
             ),
             "base_dir": _os.environ.get("OMNICELL_BASE_DIR", ""),
             "config": "obs",

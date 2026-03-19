@@ -197,7 +197,7 @@ def main() -> int:
     if args.yaml_dir:
         os.environ["SCFM_EVAL_PARAMS_PATH"] = str(Path(args.yaml_dir).resolve())
     if args.output_dir:
-        os.environ["SCFM_EVAL_OUTPUT_PATH"] = str(Path(args.output_dir).resolve())
+        os.environ["OUTPUT_PATH"] = str(Path(args.output_dir).resolve())
 
     # Setup logging
     logger = setup_logging()

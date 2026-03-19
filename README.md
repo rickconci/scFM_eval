@@ -23,37 +23,102 @@ Set these in `.env` (see `.env.example` for a template):
 
 | Variable | Description |
 |----------|-------------|
-| `VCC_DATA` | Root path for datasets (e.g. where `DATASETS/`, etc. live). |
-| `VCC_CHECKPOINTS_BASE` | Root path for model checkpoints (STACK, scGPT, Geneformer, etc.). |
-| `SCFM_EVAL_OUTPUT_PATH` | Directory where all experiment outputs are written. |
+| `DATASETS_PATH` | Root for datasets; put `.h5ad` files here (or in subdirs). YAML `dataset.path` is relative to this. |
+| `MODEL_CHECKPOINTS` | Root for model weights; each model has its own subdir (STACK, scGPT, VCC_checkpoints, etc.). |
+| `OUTPUT_PATH` | Directory where all experiment outputs and embeddings are written. |
+
+**Checkpoints vs repos:** `MODEL_CHECKPOINTS` holds the **saved weights**; repo paths (below) point to the **source code** of each model. For extractors that run in a separate env, the repo is added to `PYTHONPATH` so the code can load the weights from the checkpoint path. You need both when using that model.
 
 ### Optional variables
 
 | Variable | Description |
 |----------|-------------|
-| `STACK_REPO_ROOT` | Path to the Stack repo (for the stack extractor). |
-| `STATE_REPO_PATH` | Path to the STATE repo (for `pip install -e` in extractor env). |
-| `SCGPT_REPO_PATH` | Path to the scGPT repo. |
-| `GENEFORMER_REPO_PATH` | Path to the Geneformer repo. |
-| `UCE_REPO_PATH` | Path to the UCE repo (used in PYTHONPATH). |
+| `STACK_REPO_ROOT` | Path to the Stack **repo** (source code; used for stack extractor subprocess). |
+| `STATE_REPO_PATH` | Path to the STATE **repo** (for `pip install -e` in extractor env). |
+| `SCGPT_REPO_PATH` | Path to the scGPT **repo**. |
+| `GENEFORMER_REPO_PATH` | Path to the Geneformer **repo**. |
+| `UCE_REPO_PATH` | Path to the UCE **repo** (used in PYTHONPATH). |
+| `OMNICELL_CHECKPOINT_PATH` | Full path to Omnicell checkpoint (e.g. `.pkl` or `.pt`). Set once in `.env`; all Omnicell configs use it. If unset, falls back to `MODEL_CHECKPOINTS/Omnicell/omnicell_checkpoint_epoch27.pt`. |
+| `OMNICELL_CHECKPOINTS_BASE` | Optional override for Omnicell fallback path root (defaults to `MODEL_CHECKPOINTS` if unset). |
+| `OMNICELL_BASE_DIR` | Path to the **cell-types repo** (root or `cell_types` package dir). Required for Omnicell. |
+| `OMNICELL_DATA_DIR` | Dir with `protocol_embeddings/genes/` (gene list + gene manager). Required for Omnicell. |
+| `OMNICELL_PYTHON` | Python executable for Omnicell subprocess (optional; default: current Python). |
 | `SCFM_EVAL_PARAMS_PATH` | Override directory for YAML configs (default: `yaml/` in repo). |
 
 If you have a reference setup with concrete paths, copy from `dotenv.txt` into `.env` and adjust as needed. The app loads `.env` via `python-dotenv` on startup.
 
-## Quick start
+## Clone and run (minimal uv setup)
+
+After a fresh clone, you can run the one-shot setup with no manual env creation:
+
+1. **Install uv** (if not already): `curl -LsSf https://astral.sh/uv/install.sh | sh` (or `pip install uv`).
+2. **From the repo root**, run:
+   ```bash
+   bash setup/setup_download_all.sh
+   ```
+   The script will `uv sync` (create `.venv` and install deps from `pyproject.toml`: PyYAML, python-dotenv), then download datasets/repos/checkpoints. Dataset and model dirs default to **sibling directories** of the repo (`../datasets`, `../model_checkpoints`) so no `.env` is required for this step.
+3. **Optional:** copy `.env.example` to `.env` and set `DATASETS_PATH`, `MODEL_CHECKPOINTS`, `OUTPUT_PATH` if you want different paths. The same uv env (from `uv sync` in the setup script) includes the core deps needed to run the pipeline (e.g. `run/run_exp.py` with PCA, integration baselines, scib evaluations); see `pyproject.toml`. Model-specific extractors (Stack, STATE, Omnicell, etc.) may require separate envs or repos.
+
+## One-shot setup (download data, clone repos, fetch checkpoints)
+
+Run the script above; it uses default sibling dirs unless you set `DATASETS_PATH` and `MODEL_CHECKPOINTS` in `.env`. It downloads all evaluation datasets, clones model repos, and fetches checkpoints so you can start running experiments:
 
 ```bash
-# 1. Copy env template and set your paths
 cp .env.example .env
-# Edit .env with VCC_DATA, VCC_CHECKPOINTS_BASE, SCFM_EVAL_OUTPUT_PATH (and optional repo paths)
+# Edit .env: set DATASETS_PATH, MODEL_CHECKPOINTS, OUTPUT_PATH
 
-# 2. Install dependencies (mamba/conda or pip as per your setup)
-
-# 3. Run a single experiment from a YAML config
-python run/run_exp.py yaml/batch_bio_integration/stack/cancer_TME/bassez_pre.yaml
+bash setup/setup_download_all.sh
 ```
 
-YAML configs can use environment variable expansion (e.g. `${VCC_CHECKPOINTS_BASE}/STACK/bc_large_aligned.ckpt`). Values are expanded when configs are loaded.
+- **Datasets:** DKD, Tabula Sapiens, Lymph Node Atlas, Lung Atlas (LUCA), Hypomap, GTEx v9 (cellxgene .h5ad) → `$DATASETS_PATH/DATASETS/SCFM_datasets/EvalDatasets/cell_identity_batch/`
+- **Repos:** stack, state, geneformer, scGPT, scConcept, scsimilarity → `$REPOS_DIR` (default: sibling of `MODEL_CHECKPOINTS` named `repos`)
+- **Checkpoints:** Stack-Large, State SE-600M, scConcept, scSimilarity (and instructions for Geneformer/scGPT) → under `$MODEL_CHECKPOINTS`
+
+Options: `--datasets-only`, `--repos-only`, `--checkpoints-only`. Data and model URLs/paths are defined in `setup/dataset_paths.yaml` and `setup/model_paths.yaml` (read by the script).
+
+## Simplest first run (no model checkpoints)
+
+To run the pipeline with **no external model weights or repos**, use a **PCA** config. You only need the three required env vars and a dataset.
+
+1. **Copy and edit env**
+   ```bash
+   cp .env.example .env
+   ```
+   Set in `.env`:
+   - `DATASETS_PATH` — directory that contains your `.h5ad` files (or subdirs like `cell_identity_batch/dkd.h5ad`).
+   - `MODEL_CHECKPOINTS` — any existing directory (e.g. same as `OUTPUT_PATH`); not used for PCA.
+   - `OUTPUT_PATH` — where results will be written.
+
+2. **Check setup**
+   ```bash
+   python scripts/check_setup.py
+   python scripts/check_setup.py yaml/batch_bio_integration/pca_qc/assay/dkd_assay.yaml
+   ```
+   The second line checks that the config’s dataset path exists under `DATASETS_PATH`. Fix any reported missing paths before running.
+
+3. **Run one PCA experiment**
+   ```bash
+   python run/run_exp.py yaml/batch_bio_integration/pca_qc/assay/dkd_assay.yaml
+   ```
+   This runs load data → PCA embedding → evaluations. No STACK/scGPT/Omnicell checkpoints or repos are needed.
+
+After that works, add optional env vars and run configs that use other methods (see Optional variables and config layout below).
+
+## Quick start (with a specific model)
+
+```bash
+# 1. Copy env template and set your paths (including any repo/checkpoint paths for your chosen model)
+cp .env.example .env
+# Edit .env: DATASETS_PATH, MODEL_CHECKPOINTS, OUTPUT_PATH, and e.g. OMNICELL_BASE_DIR/OMNICELL_DATA_DIR for Omnicell
+
+# 2. (Optional) Validate env and dataset for a config
+python scripts/check_setup.py yaml/batch_bio_integration/omnicell/assay/dkd_assay.yaml
+
+# 3. Run a single experiment
+python run/run_exp.py yaml/batch_bio_integration/omnicell/assay/dkd_assay.yaml
+```
+
+YAML configs can use environment variable expansion (e.g. `${MODEL_CHECKPOINTS}/STACK/bc_large_aligned.ckpt`). Values are expanded when configs are loaded.
 
 ## Running experiments
 
@@ -126,9 +191,9 @@ So you get method-vs-method and dataset-vs-dataset comparisons with tables and b
 The summarizer runs **automatically after each experiment**. You can turn it off with **`SKIP_SUMMARIES=1`** (env) or **`dataset.skip_summaries: true`** in the YAML for that run. To run it manually on an existing output tree (e.g. after many parallel runs):
 
 ```bash
-python -m utils.results_summarizer $SCFM_EVAL_OUTPUT_PATH
-python -m utils.results_summarizer $SCFM_EVAL_OUTPUT_PATH --no-plots   # tables only, no boxplots
-python -m utils.results_summarizer $SCFM_EVAL_OUTPUT_PATH/batch_bio_integration --scope task
+python -m utils.results_summarizer $OUTPUT_PATH
+python -m utils.results_summarizer $OUTPUT_PATH --no-plots   # tables only, no boxplots
+python -m utils.results_summarizer $OUTPUT_PATH/batch_bio_integration --scope task
 ```
 
 Config files live under `yaml/` by default (or under `SCFM_EVAL_PARAMS_PATH` if set). Each YAML defines dataset, embedding method, and evaluations.
@@ -149,8 +214,8 @@ Each experiment is defined by a single YAML file with these top-level keys:
 
 **Paths in the YAML**
 
-- **Dataset path** (`dataset.path`): Either relative to `VCC_DATA` (e.g. `DATASETS/SCFM_datasets/.../file.h5ad`) or absolute using a variable, e.g. `path: ${VCC_DATA}/DATASETS/.../file.h5ad`.
-- **Model/checkpoint paths** (`embedding.params`): Use env vars so the same config works everywhere, e.g. `checkpoint_path: ${VCC_CHECKPOINTS_BASE}/STACK/bc_large_aligned.ckpt`. Any string value is expanded with `os.path.expandvars` when the config is loaded (so `$VAR` and `${VAR}` both work).
+- **Dataset path** (`dataset.path`): Relative to `DATASETS_PATH` (e.g. `cell_identity_batch/dkd.h5ad`) or absolute with a variable, e.g. `path: ${DATASETS_PATH}/cell_identity_batch/dkd.h5ad`.
+- **Model/checkpoint paths** (`embedding.params`): Use env vars so the same config works everywhere, e.g. `checkpoint_path: ${MODEL_CHECKPOINTS}/STACK/bc_large_aligned.ckpt`. Any string value is expanded with `os.path.expandvars` when the config is loaded (so `$VAR` and `${VAR}` both work).
 
 
 ## Extractors

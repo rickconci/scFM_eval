@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """One-off test: load a dataset from an Omnicell YAML and embed with Omnicell.
 
-Run from repo root with env set (VCC_DATA, VCC_OMNICELL_CHECKPOINTS_BASE, OMNICELL_BASE_DIR, etc.):
+Run from repo root with env set (DATASETS_PATH, MODEL_CHECKPOINTS or OMNICELL_CHECKPOINTS_BASE, OMNICELL_BASE_DIR, etc.):
     cd /path/to/scFM_eval && python run/test_omnicell_embed.py
     cd /path/to/scFM_eval && python run/test_omnicell_embed.py --config yaml/batch_bio_integration/omnicell/donor_id/gtex_v9_donor.yaml
 """
