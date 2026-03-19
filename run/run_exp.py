@@ -243,12 +243,13 @@ class Experiment:
         self.embedding = self.loader.adata.obsm[self.embedding_key]
         self.log.info(f'After QC: {self.embedding.shape[0]} cells with embeddings')
         
-        # Step 5: Run evaluations
-        if self.vis_embedding:
+        # Step 5: Run evaluations (skip embedding viz when deferred, e.g. parallel runner)
+        skip_plotting = os.environ.get('SKIP_PLOTTING', '0') == '1'
+        if self.vis_embedding and not skip_plotting:
             self.visualize_embedding()
         self.run_evaluations()
-        
-        # Step 6: Generate summaries (can be skipped via env var or YAML)
+
+        # Step 6: Generate summaries (can be skipped via env var or YAML; deferred in parallel runs)
         skip_summaries = (
             os.environ.get('SKIP_SUMMARIES', '0') == '1'
             or self.data_config.get('skip_summaries', False)

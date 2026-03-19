@@ -35,6 +35,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 # Base paths (CHECKPOINTS_BASE from setup_path so it reads .env)
+import os as _os
 from setup_path import CHECKPOINTS_BASE
 
 EXTRACTORS_DIR = Path(__file__).parent
@@ -203,7 +204,26 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
             "checkpoint_path": str(CHECKPOINTS_BASE / "scBERT" / "model.pt"),
         },
     },
-    
+    "omnicell": {
+        "class_name": "OmnicellExtractor",
+        "module": "omnicell.extract",
+        "needs_separate_env": False,
+        "needs_training": False,
+        "checkpoint_dir": "VCC_checkpoints",
+        "default_params": {
+            "checkpoint_path": str(
+                Path(_os.environ.get("VCC_OMNICELL_CHECKPOINTS_BASE", str(CHECKPOINTS_BASE)))
+                / "VCC_checkpoints" / "omnicell_checkpoint_epoch27.pt"
+            ),
+            "base_dir": _os.environ.get("OMNICELL_BASE_DIR", ""),
+            "config": "obs",
+            "batch_size": 4096,
+            "device": "auto",
+            "gene_types": "feature_name",
+            "load_avg": False,
+        },
+    },
+
     # =========================================================================
     # Trainable Models (train on data, save checkpoints)
     # =========================================================================

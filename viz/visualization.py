@@ -209,49 +209,75 @@ class EmbeddingVisualizer:
 
     def plot(self, adata_original=None, embedding_key=None, save_to_adata=True, pca_umap_cache_path=None):
         """
-        Generate and save embedding visualizations.
+        Generate and save **PRE** embedding visualizations for all methods.
         
-        Computes (or loads from cache):
-        1. PCA on original expression data (X) -> saved as 'X_pca'
-        2. UMAP on original expression data (neighbors on X) -> saved as 'X_umap'
-        3. UMAP on PCA of original expression data (neighbors on X_pca) -> saved as 'X_pca_umap'
-        4. UMAP on method embeddings -> saved as 'X_umap_{embedding_key}'
+        Behavior:
+        - Computes (or loads from cache) PCA on the original expression data and stores in
+          ``adata_original.obsm['X_pca']`` (dataset-dependent, not method-dependent).
+        - Builds a UMAP on the **pre-integration representation**:
+          - Prefer ``X_pca`` if present, otherwise use the raw expression ``X``.
+        - Saves UMAP plots in ``plots/embeddings``:
+          - ``embedding_batch.png``  (colored by ``obs['batch']``)
+          - ``embedding_label.png`` (colored by ``obs['label']``)
+        
+        The **POST** visualizations for each method are handled separately by
+        ``BatchEffectsEvaluator.visualize_batch_effects`` (``umap_*_post.png``),
+        so we do not duplicate POST plots here.
         
         Args:
-            adata_original: Original AnnData object to save PCA/UMAP to (optional)
-            embedding_key: Key of the embedding in adata_original.obsm (optional)
-            save_to_adata: If True and adata_original provided, save PCA/UMAP to original adata
-            pca_umap_cache_path: Path to cache PCA/UMAP (dataset-specific, reused across methods)
+            adata_original: Original AnnData object (required for PRE visualization).
+            embedding_key: Unused here; kept for API compatibility.
+            save_to_adata: If True and adata_original provided, save PCA to original adata.
+            pca_umap_cache_path: Path to cache PCA (dataset-specific, reused across methods).
         """
-        if save_to_adata and adata_original is not None:
-            # Compute or load PCA/UMAP (dataset-dependent, not method-dependent)
+        if adata_original is None:
+            logger.warning(
+                "EmbeddingVisualizer.plot called without adata_original; "
+                "skipping PRE visualization."
+            )
+            return
+
+        if save_to_adata:
+            # Compute or load PCA (dataset-dependent, not method-dependent)
             self.save_pca_umap_to_adata(adata_original, cache_path=pca_umap_cache_path)
-            
-        # 3. Compute UMAP on method embeddings for visualization
-        adata_embedding = ad.AnnData(X=self.embedding)
-        adata_embedding.obs = self.obs.copy()
-        logger.info(f'Visualizing embeddings {adata_embedding.X.shape}')
 
-        if self.auto_subsample:
-            if adata_embedding.shape[0] > 10000:
-                adata_embedding = sample_adata(adata_embedding, sample_size=5000, stratify_by=None)
-        
-        # Compute neighbors and UMAP on (subsampled) embeddings for visualization
-        logger.info(f'Computing neighbors and UMAP on embeddings ({adata_embedding.shape[0]} cells)')
-        sc.pp.neighbors(adata_embedding, use_rep='X')
-        sc.tl.umap(adata_embedding)
-        
-        # Note: Full UMAP on all cells is skipped for large datasets (too slow, not needed for viz)
-        # If full UMAP is needed, compute it separately with appropriate subsampling
+        # Build a PRE UMAP using original data (prefer X_pca if available)
+        adata_pre = adata_original.copy()
+        if self.auto_subsample and adata_pre.n_obs > 10000:
+            adata_pre = sample_adata(adata_pre, sample_size=5000, stratify_by=None)
 
-        # Generate plots using subsampled data for visualization
-        if 'batch' in adata_embedding.obs.columns:
-            embeddings_fig = sc.pl.umap(adata_embedding, color='batch', show=False, wspace=0.4, frameon=False, return_fig=True)
-            embeddings_fig.savefig(self.save_dir / 'embedding_batch.png', dpi=200, bbox_inches='tight')
-            logger.info("Saved UMAP plot colored by batch to 'embedding_batch.png'")
+        if 'X_pca' in adata_pre.obsm:
+            use_rep = 'X_pca'
+            logger.info("Computing PRE UMAP using X_pca")
+        else:
+            use_rep = 'X'
+            logger.info("Computing PRE UMAP using X")
 
-        if 'label' in adata_embedding.obs.columns:
-            embeddings_fig = sc.pl.umap(adata_embedding, color='label', show=False, wspace=0.4, frameon=False, return_fig=True)
-            embeddings_fig.savefig(self.save_dir / 'embedding_label.png', dpi=200, bbox_inches='tight')
-            logger.info("Saved UMAP plot colored by label to 'embedding_label.png'")
+        sc.pp.neighbors(adata_pre, use_rep=use_rep, n_neighbors=15)
+        sc.tl.umap(adata_pre)
+
+        # Save PRE UMAPs colored by batch and label
+        if 'batch' in adata_pre.obs.columns:
+            fig = sc.pl.umap(
+                adata_pre,
+                color='batch',
+                show=False,
+                wspace=0.4,
+                frameon=False,
+                return_fig=True,
+            )
+            fig.savefig(self.save_dir / 'embedding_batch.png', dpi=200, bbox_inches='tight')
+            logger.info("Saved PRE UMAP plot colored by batch to 'embedding_batch.png'")
+
+        if 'label' in adata_pre.obs.columns:
+            fig = sc.pl.umap(
+                adata_pre,
+                color='label',
+                show=False,
+                wspace=0.4,
+                frameon=False,
+                return_fig=True,
+            )
+            fig.savefig(self.save_dir / 'embedding_label.png', dpi=200, bbox_inches='tight')
+            logger.info("Saved PRE UMAP plot colored by label to 'embedding_label.png'")
 

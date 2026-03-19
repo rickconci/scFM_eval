@@ -235,7 +235,7 @@ class BoxplotGenerator:
                 width=0.6,
                 showfliers=True,
                 flierprops={'marker': 'o', 'markersize': 4, 'alpha': 0.5},
-                orientation='vertical'
+                orient='v',
             )
             
             # Overlay individual points colored by dataset
@@ -385,14 +385,14 @@ class BoxplotGenerator:
                     has_cv_std = std_col in task_df.columns and task_df[std_col].notna().any()
                     if has_cv_std:
                         # Cross-validated results: plot mean ± std (from CV) per method
-                        def method_std(g: pd.DataFrame) -> float:
+                        def method_std(g: pd.DataFrame, **kwargs) -> float:
                             if len(g) == 1 and pd.notna(g[std_col].iloc[0]):
                                 return float(g[std_col].iloc[0])
                             if len(g) > 1:
                                 return float(g[metric].std()) if g[metric].notna().any() else np.nan
                             return np.nan
                         means = task_df.groupby('method')[metric].mean()
-                        stds = task_df.groupby('method', sort=True).apply(method_std, include_groups=False)
+                        stds = task_df.groupby('method', sort=True).apply(method_std)
                         means = means.reindex(methods)
                         stds = stds.reindex(methods)
                         std_vals = np.where(np.isnan(stds.values), 0.0, stds.values)
@@ -423,7 +423,6 @@ class BoxplotGenerator:
                             width=0.6,
                             showfliers=False,
                             legend=False,
-                            orientation='vertical'
                         )
                         if show_individual_datasets:
                             datasets = sorted(task_df['dataset'].unique())
@@ -543,7 +542,6 @@ class BoxplotGenerator:
                     width=0.6,
                     showfliers=False,
                     legend=False,
-                    orientation='vertical'
                 )
                 
                 # Get unique datasets and create color palette
@@ -604,7 +602,6 @@ class BoxplotGenerator:
                 width=0.6,
                 showfliers=False,
                 legend=False,
-                orientation='vertical'
             )
             
             # Get unique datasets and create color palette
@@ -805,7 +802,6 @@ class BoxplotGenerator:
                 width=0.6,
                 showfliers=False,
                 legend=False,
-                orientation='vertical'
             )
             
             sns.stripplot(
@@ -925,7 +921,7 @@ class BoxplotGenerator:
                     width=0.6,
                     showfliers=False,
                     legend=False,
-                    orientation='vertical'
+                    orient='v',
                 )
 
                 # Overlay individual dataset points
@@ -1058,7 +1054,7 @@ class BoxplotGenerator:
                 width=0.6,
                 showfliers=False,
                 legend=False,
-                orientation='vertical'
+                orient='v',
             )
             
             # Overlay individual dataset points
@@ -1164,7 +1160,7 @@ class BoxplotGenerator:
                 width=0.6,
                 showfliers=False,
                 legend=False,
-                orientation='vertical'
+                orient='v',
             )
             
             sns.stripplot(
@@ -1347,7 +1343,6 @@ class BoxplotGenerator:
                     showfliers=False,
                     legend=False,
                     order=methods_ordered,
-                    orientation='vertical',
                 )
 
                 # Overlay individual dataset points

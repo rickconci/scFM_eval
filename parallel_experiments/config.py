@@ -15,6 +15,7 @@ ALLOWED_MODELS = [
     "geneformer",
     "scfoundation",
     "uce",
+    "omnicell",
     # Integration baselines (first-class methods with their own YAMLs)
     "harmony",
     "bbknn",

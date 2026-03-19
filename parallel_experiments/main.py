@@ -179,6 +179,12 @@ Examples:
         default=None,
         help="Custom output directory for results and embeddings (default: setup_path.OUTPUT_PATH). Useful for AB testing.",
     )
+    parser.add_argument(
+        "--run-viz-summary-per-experiment",
+        action="store_true",
+        dest="run_viz_summary_per_experiment",
+        help="Run plotting and summarization after each experiment. Default: defer both until all experiments finish (faster parallel runs).",
+    )
 
     return parser.parse_args()
 
@@ -318,9 +324,16 @@ def main() -> int:
         os.environ["SKIP_TRAINING_HEAVY_BASELINES"] = "1"
         logger.info("Skipping training-heavy baselines (scvi, scanvi) for all experiments [DEFAULT]")
 
+    # Defer plotting and summarization by default (run once at end)
+    defer_viz_summary = not getattr(args, "run_viz_summary_per_experiment", False)
+    if defer_viz_summary:
+        logger.info(
+            "Deferring plotting and summarization until all experiments finish (use --run-viz-summary-per-experiment to run per experiment)"
+        )
+
     # Prepare arguments for parallel execution
     experiment_args = [
-        (yaml_path, base_dir, yaml_dir, skip_existing, args.dry_run, gpu_list)
+        (yaml_path, base_dir, yaml_dir, skip_existing, args.dry_run, gpu_list, defer_viz_summary)
         for yaml_path in yaml_files
     ]
 
@@ -473,6 +486,26 @@ def main() -> int:
         return_code = 1
     else:
         return_code = 0
+
+    # If we deferred viz/summary, run summarization once at the end (no per-experiment plotting)
+    if (
+        not args.dry_run
+        and defer_viz_summary
+        and (success_count > 0 or len(existing_results) > 0)
+    ):
+        logger.info("Running deferred summarization (all tasks, methods, datasets)...")
+        try:
+            import sys
+            sys.path.insert(0, str(base_dir))
+            from setup_path import OUTPUT_PATH
+            from utils.results_summarizer import ResultsSummarizer
+            summarizer = ResultsSummarizer(OUTPUT_PATH)
+            summary_dir = OUTPUT_PATH / "summaries"
+            summary_dir.mkdir(parents=True, exist_ok=True)
+            summarizer.generate_all_summaries(save_dir=summary_dir)
+            logger.info(f"Deferred summarization complete → {summary_dir}")
+        except Exception as e:
+            logger.warning(f"Deferred summarization failed: {e}. You can run it manually later.")
 
     # Clean up temp files before exiting
     cleanup_temp_files(base_dir)

@@ -22,6 +22,7 @@ def run_single_experiment(
     skip_existing: bool = True,
     dry_run: bool = False,
     gpu_list: list[int] | None = None,
+    defer_viz_summary: bool = True,
 ) -> ExperimentResult:
     """Run a single experiment.
 
@@ -32,6 +33,8 @@ def run_single_experiment(
         skip_existing: Skip if results already exist (default: True).
         dry_run: Don't actually run, just report what would be done.
         gpu_list: List of available GPU IDs (e.g., [0, 1]). If None, uses all GPUs.
+        defer_viz_summary: If True, set SKIP_PLOTTING and SKIP_SUMMARIES so plotting
+            and summarization are skipped per run and can be done once at the end.
 
     Returns:
         ExperimentResult with success/failure status.
@@ -88,6 +91,9 @@ def run_single_experiment(
         env = os.environ.copy()
         if cuda_visible_devices is not None:
             env["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
+        if defer_viz_summary:
+            env["SKIP_PLOTTING"] = "1"
+            env["SKIP_SUMMARIES"] = "1"
 
         # Build subprocess.run arguments
         run_kwargs = {
