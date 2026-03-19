@@ -8,6 +8,9 @@ Run with PYTHONPATH set so cell_types is importable, e.g.:
 
 Expects adata.var to already have gene identifiers in var.index (e.g. gene_symbol)
 and normalized names (no "SYMBOL (ID)"); the parent process prepares adata before writing.
+
+Compatible with cell-types encoder API: uses OmnicellBase from tasks.core.base,
+and computes per-cell embeddings via encoder(x, return_cell_embeddings=True) (encoders.py).
 """
 
 from __future__ import annotations
@@ -18,6 +21,38 @@ from pathlib import Path
 
 import anndata as ad
 import numpy as np
+import torch
+
+
+def _get_cell_embeddings(
+    base: "OmnicellBase",
+    X: np.ndarray,
+    shared_gene_ids: list[int],
+    batch_size: int,
+) -> np.ndarray:
+    """Compute per-cell encoder embeddings using encoder(x, return_cell_embeddings=True).
+
+    Encoder expects input shape [B, S, G] with S=1 for per-cell (one cell per set).
+    Returns [B, latent_dim] per-cell embeddings.
+    """
+    device = base.device
+    encoder = base.encoder
+    n_cells, _ = X.shape
+    X_shared = X[:, shared_gene_ids].astype(np.float32)
+    embeddings_list = []
+
+    for start in range(0, n_cells, batch_size):
+        end = min(start + batch_size, n_cells)
+        batch_x = X_shared[start:end]
+        # [batch_size, G] -> [batch_size, 1, G] for encoder
+        x_tensor = torch.from_numpy(batch_x).to(device).unsqueeze(1)
+        with torch.no_grad():
+            _lat, cell_emb_raw, _ = encoder(x_tensor, return_cell_embeddings=True)
+        # cell_emb_raw: [B, 1, latent_dim] -> [B, latent_dim]
+        emb = cell_emb_raw.squeeze(1).cpu().numpy()
+        embeddings_list.append(emb)
+
+    return np.concatenate(embeddings_list, axis=0).astype(np.float32)
 
 
 def main() -> int:
@@ -32,16 +67,16 @@ def main() -> int:
     parser.add_argument("--load_avg", action="store_true")
     args = parser.parse_args()
 
-    base = Path(args.base_dir).resolve()
-    if (base / "cell_types").is_dir():
-        repo_root = base
-        package_dir = base / "cell_types"
-    elif base.name == "cell_types":
-        repo_root = base.parent
-        package_dir = base
+    base_path = Path(args.base_dir).resolve()
+    if (base_path / "cell_types").is_dir():
+        repo_root = base_path
+        package_dir = base_path / "cell_types"
+    elif base_path.name == "cell_types":
+        repo_root = base_path.parent
+        package_dir = base_path
     else:
-        repo_root = base.parent
-        package_dir = base
+        repo_root = base_path.parent
+        package_dir = base_path
 
     # Ensure cell_types and hydra_utils (under bulk_prediction) are importable
     path_add = [str(repo_root), str(package_dir)]
@@ -51,11 +86,10 @@ def main() -> int:
         if p not in sys.path:
             sys.path.insert(0, p)
 
-    from cell_types.tasks.base import OmnicellBase
-    import torch
+    from cell_types.tasks.core.base import OmnicellBase
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    base = OmnicellBase(
+    omnicell_base = OmnicellBase(
         config=args.config,
         checkpoint=args.checkpoint_path,
         pert_config=None,
@@ -70,18 +104,30 @@ def main() -> int:
         adata = adata.to_memory()
     adata = adata.copy()
 
-    used_genes = getattr(base.generator.model, "used_genes", None)
+    # used_genes: from generator (set at training load) or from checkpoint for inference
+    used_genes = getattr(omnicell_base.generator.model, "used_genes", None)
     if used_genes is None:
-        print("Omnicell generator has no used_genes", file=sys.stderr)
-        return 1
+        try:
+            ckpt = torch.load(args.checkpoint_path, map_location="cpu", weights_only=False)
+            used_genes = ckpt.get("used_genes")
+        except Exception:
+            pass
+    if used_genes is None:
+        print("Omnicell: used_genes not on generator and not in checkpoint; map_genes will not filter by used_genes.", file=sys.stderr)
 
-    adata_mapped = base.map_genes(adata, args.gene_types, used_genes=used_genes)
+    adata_mapped = omnicell_base.map_genes(adata, args.gene_types, used_genes=used_genes)
     X = adata_mapped.X
     if hasattr(X, "toarray"):
         X = X.toarray()
     X = np.asarray(X, dtype=np.float32)
 
-    embeddings = base.get_cell_embeddings(X, batch_size=args.batch_size)
+    # Per-cell embeddings via encoder(..., return_cell_embeddings=True)
+    embeddings = _get_cell_embeddings(
+        omnicell_base,
+        X,
+        omnicell_base.shared_gene_ids,
+        args.batch_size,
+    )
     np.save(args.output, embeddings.astype(np.float32))
     return 0
 
