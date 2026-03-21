@@ -28,8 +28,6 @@ from setup_path import OUTPUT_PATH, PARAMS_PATH, EMBEDDINGS_PATH, TEMP_PATH
 from run.utils import timing, get_configs, get_embedding_key, configure_temp_directory, cleanup_temp_files
 from run.evaluation_runner import EvaluationRunner
 
-
-
 # Configure temp directory on module import
 configure_temp_directory()
 

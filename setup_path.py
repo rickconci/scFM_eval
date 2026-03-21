@@ -13,7 +13,7 @@ PARAMS_PATH = os.environ.get("SCFM_EVAL_PARAMS_PATH", join(BASE_PATH, "yaml"))
 RUN_PATH = join(BASE_PATH, "run")
 
 # Dataset path: .h5ad paths in YAML are relative to this
-DATA_PATH = os.environ["DATASETS_PATH"]
+DATA_PATH = os.environ["DATA_PATH"]
 # Model checkpoints: each model has its own subdir (STACK, scGPT, omnicell, etc.)
 CHECKPOINTS_BASE = Path(os.environ["MODEL_CHECKPOINTS"])
 
