@@ -17,11 +17,17 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import anndata as ad
 import numpy as np
 import torch
+
+
+def _log(msg: str) -> None:
+    """Print a line to stdout and flush so parent processes see progress immediately."""
+    print(msg, flush=True)
 
 
 def _get_cell_embeddings(
@@ -40,6 +46,8 @@ def _get_cell_embeddings(
     n_cells, _ = X.shape
     X_shared = X[:, shared_gene_ids].astype(np.float32)
     embeddings_list = []
+    n_batches = (n_cells + batch_size - 1) // batch_size
+    t0 = time.perf_counter()
 
     for start in range(0, n_cells, batch_size):
         end = min(start + batch_size, n_cells)
@@ -51,6 +59,13 @@ def _get_cell_embeddings(
         # cell_emb_raw: [B, 1, latent_dim] -> [B, latent_dim]
         emb = cell_emb_raw.squeeze(1).cpu().numpy()
         embeddings_list.append(emb)
+        bi = len(embeddings_list)
+        if bi == 1 or bi == n_batches or bi % max(1, n_batches // 10) == 0:
+            _log(
+                f"Omnicell embed: batch {bi}/{n_batches} "
+                f"cells {end}/{n_cells} "
+                f"({time.perf_counter() - t0:.1f}s elapsed)"
+            )
 
     return np.concatenate(embeddings_list, axis=0).astype(np.float32)
 
@@ -86,9 +101,15 @@ def main() -> int:
         if p not in sys.path:
             sys.path.insert(0, p)
 
+    _log("[omnicell_embed] Importing OmnicellBase (may take a bit)...")
+    t_import = time.perf_counter()
     from cell_types.tasks.core.base import OmnicellBase
 
+    _log(f"[omnicell_embed] Import done in {time.perf_counter() - t_import:.1f}s")
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    _log(f"[omnicell_embed] Device: {device}; loading checkpoint (slow step)...")
+    t_load = time.perf_counter()
     omnicell_base = OmnicellBase(
         config=args.config,
         checkpoint=args.checkpoint_path,
@@ -98,7 +119,10 @@ def main() -> int:
         load_avg=args.load_avg,
         base_dir=str(package_dir),
     )
+    _log(f"[omnicell_embed] Model ready in {time.perf_counter() - t_load:.1f}s")
 
+    _log(f"[omnicell_embed] Reading {args.input} ...")
+    t_read = time.perf_counter()
     adata = ad.read_h5ad(args.input)
     if hasattr(adata, "filename") and adata.isbacked:
         adata = adata.to_memory()
@@ -115,12 +139,19 @@ def main() -> int:
     if used_genes is None:
         print("Omnicell: used_genes not on generator and not in checkpoint; map_genes will not filter by used_genes.", file=sys.stderr)
 
+    _log(
+        f"[omnicell_embed] AnnData in memory in {time.perf_counter() - t_read:.1f}s "
+        f"shape {adata.n_obs} x {adata.n_vars}; mapping genes..."
+    )
+    t_map = time.perf_counter()
     adata_mapped = omnicell_base.map_genes(adata, args.gene_types, used_genes=used_genes)
+    _log(f"[omnicell_embed] Gene map done in {time.perf_counter() - t_map:.1f}s")
     X = adata_mapped.X
     if hasattr(X, "toarray"):
         X = X.toarray()
     X = np.asarray(X, dtype=np.float32)
 
+    _log(f"[omnicell_embed] Running encoder on {X.shape[0]} cells (batch_size={args.batch_size})...")
     # Per-cell embeddings via encoder(..., return_cell_embeddings=True)
     embeddings = _get_cell_embeddings(
         omnicell_base,
@@ -128,7 +159,9 @@ def main() -> int:
         omnicell_base.shared_gene_ids,
         args.batch_size,
     )
+    _log(f"[omnicell_embed] Embeddings shape {embeddings.shape}; writing {args.output}")
     np.save(args.output, embeddings.astype(np.float32))
+    _log("[omnicell_embed] Done.")
     return 0
 
 

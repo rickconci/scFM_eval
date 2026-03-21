@@ -3,7 +3,7 @@ name = "scfm-eval"
 version = "0.1.0"
 description = "Evaluation framework for single-cell foundation models"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     # Config and env
     "pyyaml>=6.0",
@@ -33,6 +33,7 @@ dependencies = [
     "tqdm>=4.66.0",
     "requests>=2.31.0",
     "gdown>=5.2.1",
+    "huggingface-hub>=1.7.2",
 ]
 
 [dependency-groups]

@@ -1,18 +1,14 @@
 run_id: null
 dataset:
-  dataset_name: perturbseq_k562
+  dataset_name: lymph_node_atlas
   task_name: batch_bio_integration
   module: data.data_loader
   class: H5ADLoader
-  path: DATASETS/SC_PerturbSeq_datasets/k562.h5
+  path: lymph_node_atlas.h5ad
   load_raw: false
-  label_key: gene
-  batch_key: gem_group
+  label_key: cell_type
+  batch_key: batch
   layer_name: X
-  filter:
-  - column: gene
-    values:
-    - non-targeting
   train_test_split: null
   cv_splits: null
 qc:
@@ -25,7 +21,7 @@ preprocessing:
   apply_log1p: true
 hvg:
   skip: false
-  batch_key: gem_group
+  batch_key: batch
   n_top_genes: 4096
   flavor: seurat
 embedding:
@@ -44,8 +40,8 @@ evaluations:
 - type: batch_effects
   skip: false
   params:
-    batch_key: gem_group
-    label_key: gene
+    batch_key: batch
+    label_key: cell_type
     metric: euclidean
     auto_subsample: true
     n_neighbors: 90
@@ -53,3 +49,21 @@ evaluations:
     baseline_methods:
     - embed_cell_types
     - embed_cell_types_jittered
+- type: biological_signal
+  skip: false
+  params:
+    label_key: cell_type
+    metric: euclidean
+    auto_subsample: true
+    leiden_resolution: 0.3
+    n_neighbors: 15
+- type: annotation
+  skip: false
+  params:
+    label_key: cell_type
+    k: 15
+    metric: euclidean
+    method: sklearn_knn
+    split_strategies:
+    - round_robin
+    min_cells_per_type: 2

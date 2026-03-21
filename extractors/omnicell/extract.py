@@ -207,10 +207,23 @@ class OmnicellExtractor(BaseExtractor):
             ]
             if self.load_avg:
                 cmd.append("--load_avg")
-            result = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=str(repo_root))
+            # Unbuffered child + inherited stdout/stderr so logs appear during long runs
+            # (capture_output=True would hide all subprocess output until exit).
+            env.setdefault("PYTHONUNBUFFERED", "1")
+            logger.info(
+                "Starting Omnicell embedding subprocess (%d cells); "
+                "progress prints from the helper go to stdout below.",
+                adata.n_obs,
+            )
+            result = subprocess.run(cmd, env=env, cwd=str(repo_root))
             if result.returncode != 0:
-                logger.error("Omnicell subprocess stderr: %s", result.stderr)
-                raise RuntimeError(f"Omnicell embedding subprocess failed with code {result.returncode}")
+                logger.error(
+                    "Omnicell subprocess exited with code %s; see traceback above.",
+                    result.returncode,
+                )
+                raise RuntimeError(
+                    f"Omnicell embedding subprocess failed with code {result.returncode}"
+                )
             embeddings = np.load(output_npy)
         logger.info("Omnicell embeddings shape: %s, dtype %s", embeddings.shape, embeddings.dtype)
         return embeddings.astype(np.float32)

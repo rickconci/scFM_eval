@@ -4,7 +4,7 @@ dataset:
   task_name: batch_bio_integration
   module: data.data_loader
   class: H5ADLoader
-  path: DATASETS/SCFM_datasets/EvalDatasets/cell_batch_real/harmony_figure4_pmbcs/harmony_figure4_pmbcs_combined.h5ad
+  path: harmony_figure4_pmbcs_combined.h5ad
   load_raw: false
   label_key: cell_subtype
   batch_key: batch

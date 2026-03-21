@@ -4,7 +4,7 @@ dataset:
   task_name: batch_bio_integration
   module: data.data_loader
   class: H5ADLoader
-  path: DATASETS/SCFM_datasets/EvalDatasets/cell_batch_real/single_cell_PMBC_methods_comparison/SCP424/scp424_adata.h5ad
+  path: scp424_adata.h5ad
   load_raw: false
   label_key: CellType
   batch_key: Method
