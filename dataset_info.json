@@ -1,0 +1,250 @@
+[
+    {
+        "dataset": "dkd.h5ad",
+        "shape": [
+            39176,
+            35469
+        ],
+        "uns_data_state": null,
+        "has_uns_log1p": false,
+        "layers": [],
+        "X_probe": {
+            "max": 4.56435,
+            "min": 0.0,
+            "mean": 0.06393,
+            "frac_integer": 0.9261,
+            "has_negative": false,
+            "looks_log1p": true,
+            "looks_raw_counts": false
+        },
+        "has_raw": true,
+        "raw_shape": [
+            39176,
+            35469
+        ],
+        "raw_probe": {
+            "max": 214.0,
+            "min": 0.0,
+            "mean": 0.21153,
+            "frac_integer": 1.0,
+            "has_negative": false,
+            "looks_log1p": false,
+            "looks_raw_counts": true
+        },
+        "layer_probes": {}
+    },
+    {
+        "dataset": "gtex_v9.h5ad",
+        "shape": [
+            209126,
+            32088
+        ],
+        "uns_data_state": null,
+        "has_uns_log1p": false,
+        "layers": [],
+        "X_probe": {
+            "max": 5.50045,
+            "min": 0.0,
+            "mean": 0.09112,
+            "frac_integer": 0.95205,
+            "has_negative": false,
+            "looks_log1p": true,
+            "looks_raw_counts": false
+        },
+        "has_raw": true,
+        "raw_shape": [
+            209126,
+            32088
+        ],
+        "raw_probe": {
+            "max": 91.0,
+            "min": 0.0,
+            "mean": 0.09313,
+            "frac_integer": 1.0,
+            "has_negative": false,
+            "looks_log1p": false,
+            "looks_raw_counts": false
+        },
+        "layer_probes": {}
+    },
+    {
+        "dataset": "hypomap.h5ad",
+        "shape": [
+            384925,
+            51216
+        ],
+        "uns_data_state": null,
+        "has_uns_log1p": false,
+        "layers": [],
+        "X_probe": {
+            "max": 3.89406,
+            "min": 0.0,
+            "mean": 0.05407,
+            "frac_integer": 0.96739,
+            "has_negative": false,
+            "looks_log1p": true,
+            "looks_raw_counts": false
+        },
+        "has_raw": true,
+        "raw_shape": [
+            384925,
+            51216
+        ],
+        "raw_probe": {
+            "max": 14.0,
+            "min": 0.0,
+            "mean": 0.04378,
+            "frac_integer": 1.0,
+            "has_negative": false,
+            "looks_log1p": true,
+            "looks_raw_counts": false
+        },
+        "layer_probes": {}
+    },
+    {
+        "dataset": "lung_atlas.h5ad",
+        "shape": [
+            892296,
+            17764
+        ],
+        "uns_data_state": null,
+        "has_uns_log1p": false,
+        "layers": [
+            "count",
+            "counts_length_scaled"
+        ],
+        "X_probe": {
+            "max": 4.87248,
+            "min": 0.0,
+            "mean": 0.07371,
+            "frac_integer": 0.91039,
+            "has_negative": false,
+            "looks_log1p": true,
+            "looks_raw_counts": false
+        },
+        "has_raw": true,
+        "raw_shape": [
+            892296,
+            17764
+        ],
+        "raw_probe": {
+            "max": 392.0,
+            "min": 0.0,
+            "mean": 0.20465,
+            "frac_integer": 1.0,
+            "has_negative": false,
+            "looks_log1p": false,
+            "looks_raw_counts": true
+        },
+        "layer_probes": {
+            "count": {
+                "max": 392.0,
+                "min": 0.0,
+                "mean": 0.20465,
+                "frac_integer": 1.0,
+                "has_negative": false,
+                "looks_log1p": false,
+                "looks_raw_counts": true
+            },
+            "counts_length_scaled": {
+                "max": 392.0,
+                "min": 0.0,
+                "mean": 0.20465,
+                "frac_integer": 1.0,
+                "has_negative": false,
+                "looks_log1p": false,
+                "looks_raw_counts": true
+            }
+        }
+    },
+    {
+        "dataset": "lymph_node_atlas.h5ad",
+        "shape": [
+            598289,
+            35180
+        ],
+        "uns_data_state": null,
+        "has_uns_log1p": false,
+        "layers": [],
+        "X_probe": {
+            "max": 5.00113,
+            "min": 0.0,
+            "mean": 0.09997,
+            "frac_integer": 0.91566,
+            "has_negative": false,
+            "looks_log1p": true,
+            "looks_raw_counts": false
+        },
+        "has_raw": true,
+        "raw_shape": [
+            598289,
+            35180
+        ],
+        "raw_probe": {
+            "max": 79.0,
+            "min": 0.0,
+            "mean": 0.18246,
+            "frac_integer": 1.0,
+            "has_negative": false,
+            "looks_log1p": false,
+            "looks_raw_counts": false
+        },
+        "layer_probes": {}
+    },
+    {
+        "dataset": "tabula_sapiens.h5ad",
+        "shape": [
+            1136218,
+            60606
+        ],
+        "uns_data_state": null,
+        "has_uns_log1p": false,
+        "layers": [
+            "decontXcounts",
+            "scale_data"
+        ],
+        "X_probe": {
+            "max": 6.60142,
+            "min": 0.0,
+            "mean": 0.12636,
+            "frac_integer": 0.90859,
+            "has_negative": false,
+            "looks_log1p": true,
+            "looks_raw_counts": false
+        },
+        "has_raw": true,
+        "raw_shape": [
+            1136218,
+            60606
+        ],
+        "raw_probe": {
+            "max": 173114.0,
+            "min": 0.0,
+            "mean": 43.99807,
+            "frac_integer": 1.0,
+            "has_negative": false,
+            "looks_log1p": false,
+            "looks_raw_counts": true
+        },
+        "layer_probes": {
+            "decontXcounts": {
+                "max": 173114.0,
+                "min": 0.0,
+                "mean": 43.99807,
+                "frac_integer": 1.0,
+                "has_negative": false,
+                "looks_log1p": false,
+                "looks_raw_counts": true
+            },
+            "scale_data": {
+                "max": 45.34711,
+                "min": 0.0,
+                "mean": 0.25523,
+                "frac_integer": 0.90859,
+                "has_negative": false,
+                "looks_log1p": false,
+                "looks_raw_counts": false
+            }
+        }
+    }
+]

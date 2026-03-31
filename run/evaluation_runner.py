@@ -140,7 +140,10 @@ class EvaluationRunner:
         metric = params.get('metric', 'euclidean')
         run_baselines = params.get('run_baselines', False)
         baseline_methods = params.get('baseline_methods', [])
-        run_integration_baselines = params.get('run_integration_baselines', True)  # Default True
+        # Integration baselines are expensive and should be explicit in YAML.
+        # Default False avoids unintentionally running pca_qc/bbknn/harmony/scanorama
+        # during normal model evaluations (e.g., omnicell checkpoint sweeps).
+        run_integration_baselines = params.get('run_integration_baselines', False)
         # Check YAML config first, then environment variable
         # Default: True (skip training-heavy baselines by default)
         skip_training_heavy_baselines = params.get('skip_training_heavy_baselines', None)

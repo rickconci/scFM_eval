@@ -72,6 +72,9 @@ class Experiment:
         self.dataset_name = self.data_config.get('dataset_name')
         self.task_name = self.data_config.get('task_name')
         self.method_name = self.feat_config.get('method')
+        # Optional override for output directory namespace (keeps extractor method intact).
+        # Example: method=omnicell, output namespace=omnicell_checkpoint_2
+        self.output_method_name = os.environ.get("RESULTS_METHOD_NAMESPACE", "").strip() or self.method_name
         self.dataset_subgroup = None  # e.g. HBio_HTech when path is batch_integration/scconcept/HBio_HTech/perturbseq_competition.yaml
         
         # Extract dataset_subgroup from config path if hierarchical structure is used
@@ -118,7 +121,7 @@ class Experiment:
         # Build output path: OUTPUT_PATH / task / method / [subgroup /] dataset /
         # When YAMLs are under task/method/subgroup/*.yaml, include subgroup in path (e.g. batch_denoising/scConcept/HBio_HTech/perturbseq_competition)
         config_filename = os.path.basename(self.config_path)
-        save_dir = OUTPUT_PATH / self.task_name / self.method_name
+        save_dir = OUTPUT_PATH / self.task_name / self.output_method_name
         if self.dataset_subgroup:
             save_dir = save_dir / self.dataset_subgroup / self.dataset_name
         else:
@@ -160,6 +163,16 @@ class Experiment:
         self.data = None
         self.embedding = None
         self.embedding_key = None
+
+        def _omnicell_checkpoint_tag() -> str:
+            """Build a stable cache suffix from OMNICELL_CHECKPOINT_PATH."""
+            ckpt_path = os.environ.get("OMNICELL_CHECKPOINT_PATH", "").strip()
+            if not ckpt_path:
+                return "default_checkpoint"
+            stem = Path(ckpt_path).stem
+            # Keep filenames safe and deterministic.
+            safe = "".join(ch if (ch.isalnum() or ch in {"-", "_"}) else "_" for ch in stem)
+            return safe or "default_checkpoint"
         
         # Set up embedding cache path: EMBEDDINGS_PATH / dataset_name / method.h5ad
         # Use dataset_name from config (already set above)
@@ -170,6 +183,9 @@ class Experiment:
         _integration_baselines = {'harmony', 'bbknn', 'scanorama', 'pca_qc', 'scvi', 'scanvi'}
         if self.method_name.lower() in _integration_baselines and self.dataset_subgroup:
             self.embedding_cache_path = self.embeddings_dir / f'{self.method_name}_{self.dataset_subgroup}.h5ad'
+        elif self.method_name.lower() == 'omnicell':
+            ckpt_tag = _omnicell_checkpoint_tag()
+            self.embedding_cache_path = self.embeddings_dir / f'{self.method_name}_{ckpt_tag}.h5ad'
         else:
             self.embedding_cache_path = self.embeddings_dir / f'{self.method_name}.h5ad'
         
@@ -291,6 +307,7 @@ class Experiment:
         Uses the centralized data_state module for clean state management.
         
         Model-specific handling:
+        - Omnicell: Expects RAW counts (no normalization/log1p)
         - STACK, scConcept: Expect NORMALIZED (TP10K) data, apply log1p internally
         - Other methods: Expect LOG1P (TP10K + log1p) data
         
@@ -329,7 +346,10 @@ class Experiment:
             self.log.info('YAML config: apply_log1p_for_embeddings=True')
         
         # Set target state
-        if skip_log1p_for_method:
+        if method_name == 'omnicell':
+            target_state = DataState.RAW
+            self.log.info('omnicell expects count data → target state: RAW')
+        elif skip_log1p_for_method:
             target_state = DataState.NORMALIZED
             self.log.info(f'{method_name} applies log1p internally → target state: NORMALIZED')
         else:
@@ -343,6 +363,18 @@ class Experiment:
         if current_state == target_state:
             self.log.info(f'Data already in {target_state.value} state, no transformation needed')
             set_data_state(self.loader.adata, current_state)  # Ensure flag is set
+        elif target_state == DataState.RAW:
+            # RAW cannot be recovered from normalized/log1p values unless adata.raw
+            # was preserved earlier in the pipeline.
+            if self.loader.adata.raw is not None:
+                self.log.info('Switching to adata.raw to provide RAW counts for omnicell embeddings')
+                self.loader.adata = self.loader.adata.raw.to_adata()
+                set_data_state(self.loader.adata, DataState.RAW, mark_preprocessed=False)
+            else:
+                raise ValueError(
+                    'omnicell requires RAW count data, but current matrix is not RAW and adata.raw is unavailable. '
+                    'Please load raw counts (e.g., dataset config `load_raw: true`) or provide an h5ad with counts in X.'
+                )
         elif current_state == DataState.LOG1P and target_state == DataState.NORMALIZED:
             # Data is log1p but model expects NORMALIZED; extractor uses get_data_state(adata) and skips internal log1p
             self.log.info(
@@ -753,7 +785,7 @@ class Experiment:
             from utils.results_summarizer import ResultsSummarizer
             
             task_name = self.task_name
-            method_name = self.method_name
+            method_name = self.output_method_name
             dataset_subgroup = self.dataset_subgroup
             
             # If we have a subgroup, generate subgroup-level summaries first

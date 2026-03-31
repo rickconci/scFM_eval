@@ -1,13 +1,14 @@
 """Check for existing experiment results."""
 
 import logging
+import os
 import time
 from pathlib import Path
 
 import pandas as pd
 import yaml
 
-from parallel_experiments.config import OUTPUT_PATH
+from setup_path import get_output_path
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,25 @@ BATCH_BIO_SUBGROUP_TECHNICAL_REPEATS = "technical_repeats"
 # Baseline methods run inside each main-method YAML; all must be complete for (subgroup, dataset)
 # so that re-running the main YAML will re-run baselines and fill any missing evaluation outputs.
 INTEGRATION_BASELINES_FOR_COMPLETENESS = ("harmony", "scanorama", "bbknn", "pca_qc")
+
+
+def _is_omnicell_checkpoint_output_method(method: str) -> bool:
+    """Return True if results are stored under a per-checkpoint folder name.
+
+    Checkpoint sweeps set ``RESULTS_METHOD_NAMESPACE`` to values like
+    ``omnicell_checkpoint_3``. Those runs still use ``task_name: batch_bio_integration`` on
+    disk, but they do **not** write integration baselines (harmony, scanorama, …) next to
+    each Omnicell run, and metric counts may differ from the full 11-metric integration
+    template. Applying the strict integration completeness rules would always mark them
+    incomplete whenever stale baseline directories exist from other sweeps.
+
+    Args:
+        method: Lowercased method / output folder name (e.g. ``omnicell_checkpoint_5``).
+
+    Returns:
+        Whether to use the light skip check (non-empty metrics only).
+    """
+    return method.lower().startswith("omnicell_checkpoint_")
 
 
 def _find_dir_case_insensitive(parent: Path, target_name: str) -> Path | None:
@@ -71,7 +91,7 @@ def _is_batch_bio_integration_complete(metrics_dir: Path) -> bool:
         return False
     experiment_dir = metrics_dir.parent
     try:
-        rel_parts = experiment_dir.relative_to(OUTPUT_PATH).parts
+        rel_parts = experiment_dir.relative_to(get_output_path()).parts
     except ValueError:
         return False
     # 3-level: task/method/dataset  -> len 3; 4-level: task/method/subgroup/dataset -> len 4
@@ -149,10 +169,11 @@ def scan_completed_experiments() -> set[tuple[str, str, str | None, str]]:
     logger.info("Scanning for completed experiments (this is fast)...")
     start_time = time.time()
 
-    if not OUTPUT_PATH.exists():
+    output_root = get_output_path()
+    if not output_root.exists():
         return completed
 
-    for task_dir in OUTPUT_PATH.iterdir():
+    for task_dir in output_root.iterdir():
         if (
             not task_dir.is_dir()
             or task_dir.name.startswith(".")
@@ -175,7 +196,9 @@ def scan_completed_experiments() -> set[tuple[str, str, str | None, str]]:
 
                 metrics_dir = item / "metrics"
                 if _has_valid_metrics(metrics_dir):
-                    if task == "batch_bio_integration":
+                    if task == "batch_bio_integration" and not _is_omnicell_checkpoint_output_method(
+                        method
+                    ):
                         if not _is_batch_bio_integration_complete(metrics_dir):
                             continue
                         if not _are_batch_bio_baselines_complete(task_dir, None, item.name):
@@ -191,10 +214,14 @@ def scan_completed_experiments() -> set[tuple[str, str, str | None, str]]:
                         continue
                     mdir = dataset_dir / "metrics"
                     if _has_valid_metrics(mdir):
-                        if task == "batch_bio_integration":
+                        if task == "batch_bio_integration" and not _is_omnicell_checkpoint_output_method(
+                            method
+                        ):
                             if not _is_batch_bio_integration_complete(mdir):
                                 continue
-                            if not _are_batch_bio_baselines_complete(task_dir, subgroup, dataset_dir.name):
+                            if not _are_batch_bio_baselines_complete(
+                                task_dir, subgroup, dataset_dir.name
+                            ):
                                 continue
                         completed.add((task, method, subgroup, dataset_dir.name))
 
@@ -229,7 +256,12 @@ def check_existing_results(
         return False
 
     task = parts[0]
+    # YAML folder is still "omnicell" while results may live under RESULTS_METHOD_NAMESPACE
+    # (e.g. omnicell_checkpoint_3) — match run_exp.py output_method_name logic.
     method = parts[1].lower()
+    namespace = os.environ.get("RESULTS_METHOD_NAMESPACE", "").strip().lower()
+    if namespace:
+        method = namespace
     # 4-level: task/method/subgroup/dataset.yaml -> subgroup = parts[2]
     subgroup: str | None = parts[2] if len(parts) == 4 else None
 
@@ -252,7 +284,7 @@ def check_existing_results(
     if completed_set is not None:
         is_completed = key in completed_set
         if is_completed:
-            task_dir = OUTPUT_PATH / task
+            task_dir = get_output_path() / task
             method_dir = _find_dir_case_insensitive(task_dir, method)
             if method_dir is None:
                 logger.warning(f"Method dir not found for {task}/{method}/{dataset}")
@@ -264,7 +296,9 @@ def check_existing_results(
                     f"Found {key} in completed set but metrics dir invalid: {metrics_dir}"
                 )
                 return False
-            if task == "batch_bio_integration":
+            if task == "batch_bio_integration" and not _is_omnicell_checkpoint_output_method(
+                method
+            ):
                 if not _is_batch_bio_integration_complete(metrics_dir):
                     return False
                 if not _are_batch_bio_baselines_complete(task_dir, subgroup, dataset):
@@ -272,7 +306,7 @@ def check_existing_results(
         return is_completed
 
     # Slow path: check filesystem
-    task_dir = OUTPUT_PATH / task
+    task_dir = get_output_path() / task
     method_dir = _find_dir_case_insensitive(task_dir, method)
     if method_dir is None:
         return False
@@ -280,7 +314,7 @@ def check_existing_results(
     output_dir = method_dir / dataset if subgroup is None else method_dir / subgroup / dataset
     metrics_dir = output_dir / "metrics"
     if _has_valid_metrics(metrics_dir):
-        if task == "batch_bio_integration":
+        if task == "batch_bio_integration" and not _is_omnicell_checkpoint_output_method(method):
             if not _is_batch_bio_integration_complete(metrics_dir):
                 return False
             if not _are_batch_bio_baselines_complete(task_dir, subgroup, dataset):

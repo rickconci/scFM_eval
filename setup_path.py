@@ -21,6 +21,19 @@ CHECKPOINTS_BASE = Path(os.environ["MODEL_CHECKPOINTS"])
 OUTPUT_PATH = Path(os.environ["OUTPUT_PATH"])
 EMBEDDINGS_PATH = OUTPUT_PATH / "embeddings"
 
+
+def get_output_path() -> Path:
+    """Return the current results root directory.
+
+    Reads ``os.environ['OUTPUT_PATH']`` on each call so runtime overrides work
+    (e.g. ``parallel_experiments.main --output-dir``), unlike the module-level
+    ``OUTPUT_PATH`` constant which is fixed at first import of this module.
+
+    Returns:
+        Resolved output path as a :class:`pathlib.Path`.
+    """
+    return Path(os.environ["OUTPUT_PATH"])
+
 # Custom temp directory on network storage (avoids filling local /tmp)
 # This is used for large temporary files (h5ad, embeddings, etc.)
 TEMP_PATH = OUTPUT_PATH / ".temp"

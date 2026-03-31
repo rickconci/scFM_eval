@@ -4,7 +4,7 @@ dataset:
   task_name: batch_bio_integration
   module: data.data_loader
   class: H5ADLoader
-  path: DATASETS/SCFM_datasets/EvalDatasets/cell_identity_batch/hypomap.h5ad
+  path: hypomap.h5ad
   #${VCC_DATA}/DATASETS/SCFM_datasets/EvalDatasets/cell_identity_batch/hypomap.h5ad
   load_raw: false
   label_key: cell_type

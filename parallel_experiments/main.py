@@ -497,10 +497,12 @@ def main() -> int:
         try:
             import sys
             sys.path.insert(0, str(base_dir))
-            from setup_path import OUTPUT_PATH
+            from setup_path import get_output_path
             from utils.results_summarizer import ResultsSummarizer
-            summarizer = ResultsSummarizer(OUTPUT_PATH)
-            summary_dir = OUTPUT_PATH / "summaries"
+
+            output_root = get_output_path()
+            summarizer = ResultsSummarizer(output_root)
+            summary_dir = output_root / "summaries"
             summary_dir.mkdir(parents=True, exist_ok=True)
             summarizer.generate_all_summaries(save_dir=summary_dir)
             logger.info(f"Deferred summarization complete → {summary_dir}")

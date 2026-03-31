@@ -118,8 +118,14 @@ def run_single_experiment(
                 duration_seconds=duration,
             )
         else:
-            # Capture more of the error for debugging (last 2000 chars to see full traceback)
-            error_msg = result.stderr[-2000:] if result.stderr else "Unknown error"
+            # Capture stderr tail; also include stdout tail because some libs log tracebacks
+            # there. Warnings on stderr alone can misleadingly dominate the last N chars.
+            stderr_tail = (result.stderr or "")[-2000:]
+            stdout_tail = (result.stdout or "")[-2000:]
+            if stdout_tail.strip():
+                error_msg = f"{stderr_tail}\n--- stdout (tail) ---\n{stdout_tail}"
+            else:
+                error_msg = stderr_tail or "Unknown error"
 
             # Check if it's a species mismatch (should be marked as skipped, not failed)
             is_species_mismatch = (

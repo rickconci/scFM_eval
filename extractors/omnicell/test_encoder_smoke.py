@@ -60,6 +60,9 @@ def _setup_sys_path(package_dir: Path) -> Path:
     bulk = pkg / "bulk_prediction"
     if bulk.is_dir():
         path_add.append(str(bulk))
+    gen_root = pkg / "generative"
+    if gen_root.is_dir():
+        path_add.append(str(gen_root))
     for p in path_add:
         if p not in sys.path:
             sys.path.insert(0, p)
@@ -95,7 +98,10 @@ def main() -> int:
     parser.add_argument(
         "--checkpoint_path",
         required=True,
-        help="Checkpoint with encoder_state_dict or avg_encoder_state_dict",
+        help=(
+            "Checkpoint with encoder_state_dict and/or avg_encoder_state_dict "
+            "(default: load averaged weights, same as generate_distribution_embeddings.py)"
+        ),
     )
     parser.add_argument(
         "--base_dir",
@@ -104,9 +110,15 @@ def main() -> int:
     )
     parser.add_argument("--config", default="obs", help="Hydra config name (default: obs)")
     parser.add_argument(
-        "--load_avg",
-        action="store_true",
-        help="Load averaged encoder weights (avg_encoder_state_dict)",
+        "--load-avg",
+        dest="load_avg",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Load averaged encoder weights (avg_encoder_state_dict); default True, "
+            "matching generate_distribution_embeddings.py. Use --no-load-avg for "
+            "raw encoder_state_dict."
+        ),
     )
     parser.add_argument(
         "--batch_cells",
@@ -125,6 +137,11 @@ def main() -> int:
         help="cuda | cpu (default: cuda if available else cpu)",
     )
     args = parser.parse_args()
+
+    checkpoint_path = Path(args.checkpoint_path).expanduser().resolve()
+    if not checkpoint_path.is_file():
+        print(f"error: checkpoint not found: {checkpoint_path}", file=sys.stderr)
+        return 2
 
     if not str(args.base_dir).strip():
         print(
@@ -162,7 +179,7 @@ def main() -> int:
         config=args.config,
         base_dir=str(package_dir),
         gene_manager=gene_manager,
-        checkpoint=args.checkpoint_path,
+        checkpoint=str(checkpoint_path),
         load_avg=args.load_avg,
         device=device,
     )

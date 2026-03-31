@@ -22,11 +22,21 @@ import os
 import subprocess
 import sys
 import tempfile
+import warnings
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import scanpy as sc
+
+try:
+    from anndata import ImplicitModificationWarning
+except ImportError:  # pragma: no cover - defensive for odd installs
+    ImplicitModificationWarning = type(  # type: ignore[misc,assignment]
+        "ImplicitModificationWarning",
+        (Warning,),
+        {},
+    )
 
 # Base extractor
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -55,8 +65,12 @@ class OmnicellExtractor(BaseExtractor):
     - If ``gene_types == "feature_name"`` and ``adata.var`` has ``gene_symbol``,
       the extractor uses ``gene_symbol`` as the mapping source (recommended:
       run ``ensure_both_gene_identifiers(normalize=True)`` before extraction).
+      If ``gene_symbol`` is missing but ``feature_name`` exists (e.g. CELLxGENE
+      downloads), ``feature_name`` is used so ``var.index`` is not wrongly
+      treated as symbols when it holds Ensembl IDs.
     - If ``gene_types == "feature_id"`` and ``adata.var`` has ``gene_id``,
-      the extractor uses ``gene_id`` for mapping.
+      the extractor uses ``gene_id`` for mapping; if missing, ``feature_id`` is
+      used when present.
     - Gene names like ``"SYMBOL (ENTREZ)"`` are normalized to ``"SYMBOL"``
       before lookup so they match the global list.
     - ``OMNICELL_BASE_DIR``: path to the cell-types repo root (e.g. ``.../cell-types``)
@@ -81,7 +95,7 @@ class OmnicellExtractor(BaseExtractor):
         batch_size: int = 4096,
         device: str = "auto",
         gene_types: str = "feature_name",
-        load_avg: bool = False,
+        load_avg: bool = True,
         params: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
@@ -161,18 +175,27 @@ class OmnicellExtractor(BaseExtractor):
         if hasattr(adata, "filename") and adata.isbacked:
             adata = adata.to_memory()
         adata = adata.copy()
-        if self.gene_types == "feature_name" and "gene_symbol" in adata.var.columns:
-            adata.var.index = adata.var["gene_symbol"].astype(str).values
-        elif self.gene_types == "feature_id" and "gene_id" in adata.var.columns:
-            adata.var.index = adata.var["gene_id"].astype(str).values
+        if self.gene_types == "feature_name":
+            if "gene_symbol" in adata.var.columns:
+                adata.var.index = adata.var["gene_symbol"].astype(str).values
+            elif "feature_name" in adata.var.columns:
+                adata.var.index = adata.var["feature_name"].astype(str).values
+        elif self.gene_types == "feature_id":
+            if "gene_id" in adata.var.columns:
+                adata.var.index = adata.var["gene_id"].astype(str).values
+            elif "feature_id" in adata.var.columns:
+                adata.var.index = adata.var["feature_id"].astype(str).values
         normalize_adata_var_gene_names(adata)
 
         helper = Path(__file__).resolve().parent / "run_omnicell_embed.py"
         env = os.environ.copy()
         bulk_dir = package_dir / "bulk_prediction"
+        generative_dir = package_dir / "generative"
         path_parts = [str(repo_root), str(package_dir)]
         if bulk_dir.is_dir():
             path_parts.append(str(bulk_dir))  # so hydra_utils (bulk_prediction/hydra_utils) is found
+        if generative_dir.is_dir():
+            path_parts.append(str(generative_dir))  # Hydra: generator.* targets live under generative/
         env["PYTHONPATH"] = os.pathsep.join(path_parts + [env.get("PYTHONPATH", "")])
         if "OMNICELL_DATA_DIR" not in env:
             logger.warning("OMNICELL_DATA_DIR not set; cell-types may fail to load gene manager")
@@ -180,7 +203,11 @@ class OmnicellExtractor(BaseExtractor):
         with tempfile.TemporaryDirectory(prefix="omnicell_embed_") as tmp:
             input_h5ad = Path(tmp) / "adata.h5ad"
             output_npy = Path(tmp) / "embeddings.npy"
-            adata.write_h5ad(input_h5ad)
+            subprocess_log = Path(tmp) / "omnicell_subprocess.log"
+            # Avoid AnnData warning noise on obs/var index coercion when writing temp h5ad.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", ImplicitModificationWarning)
+                adata.write_h5ad(input_h5ad)
 
             # Allow overriding the Python used for the subprocess so we can
             # point explicitly to the Omnicell / cell-types env (e.g. MORPH).
@@ -205,21 +232,40 @@ class OmnicellExtractor(BaseExtractor):
                 "--batch_size",
                 str(self.batch_size),
             ]
-            if self.load_avg:
-                cmd.append("--load_avg")
+            if not self.load_avg:
+                cmd.append("--no-load-avg")
             # Unbuffered child + inherited stdout/stderr so logs appear during long runs
             # (capture_output=True would hide all subprocess output until exit).
             env.setdefault("PYTHONUNBUFFERED", "1")
             logger.info(
                 "Starting Omnicell embedding subprocess (%d cells); "
-                "progress prints from the helper go to stdout below.",
+                "progress is written to %s (required when the parent stdout is a pipe, "
+                "e.g. parallel_experiments capture_output — otherwise the pipe fills and deadlocks).",
                 adata.n_obs,
+                subprocess_log,
             )
-            result = subprocess.run(cmd, env=env, cwd=str(repo_root))
+            # Never inherit stdout/stderr when this process may have stdout/stderr connected
+            # to a full PIPE (parallel runner uses subprocess.run(capture_output=True)).
+            # The helper prints once per ~10% of batches; ~900k cells → enough lines to fill 64KiB.
+            with open(subprocess_log, "w", encoding="utf-8", errors="replace") as logf:
+                result = subprocess.run(
+                    cmd,
+                    env=env,
+                    cwd=str(repo_root),
+                    stdout=logf,
+                    stderr=subprocess.STDOUT,
+                )
             if result.returncode != 0:
+                try:
+                    tail = subprocess_log.read_text(encoding="utf-8", errors="replace")[
+                        -12000:
+                    ]
+                except OSError:
+                    tail = "(could not read subprocess log)"
                 logger.error(
-                    "Omnicell subprocess exited with code %s; see traceback above.",
+                    "Omnicell subprocess exited with code %s. Log tail:\n%s",
                     result.returncode,
+                    tail,
                 )
                 raise RuntimeError(
                     f"Omnicell embedding subprocess failed with code {result.returncode}"
@@ -257,9 +303,14 @@ def main() -> None:
         help="Gene identifier type in adata.var_names (default: feature_name)",
     )
     parser.add_argument(
-        "--load_avg",
-        action="store_true",
-        help="Load averaged weights (only if checkpoint has avg_encoder_state_dict)",
+        "--load-avg",
+        dest="load_avg",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Load averaged encoder weights (default True; matches "
+            "generate_distribution_embeddings.py). Use --no-load-avg for raw weights."
+        ),
     )
     args = parser.parse_args()
 

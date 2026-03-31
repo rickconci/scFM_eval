@@ -1,0 +1,69 @@
+dataset:
+  batch_key: Sample ID_prep
+  class: H5ADLoader
+  cv_splits: null
+  dataset_name: gtex_v9
+  label_key: cell_type
+  layer_name: X
+  load_raw: false
+  module: data.data_loader
+  path: gtex_v9.h5ad
+  task_name: batch_bio_integration
+  train_test_split: null
+embedding:
+  class: OmnicellExtractor
+  eval: true
+  method: omnicell
+  module: extractors.omnicell.extract
+  params:
+    base_dir: ${OMNICELL_BASE_DIR}
+    batch_size: 4096
+    config: obs
+    gene_types: feature_name
+    load_avg: false
+  viz: true
+evaluations:
+- params:
+    auto_subsample: true
+    baseline_methods:
+    - embed_cell_types
+    - embed_cell_types_jittered
+    batch_key: Sample ID_prep
+    label_key: cell_type
+    metric: euclidean
+    n_neighbors: 90
+    run_baselines: true
+  skip: false
+  type: batch_effects
+- params:
+    auto_subsample: true
+    label_key: cell_type
+    leiden_resolution: 0.3
+    metric: euclidean
+    n_neighbors: 15
+  skip: false
+  type: biological_signal
+- params:
+    k: 15
+    label_key: cell_type
+    method: sklearn_knn
+    metric: euclidean
+    min_cells_per_type: 2
+    split_strategies:
+    - round_robin
+  skip: false
+  type: annotation
+hvg:
+  batch_key: Sample ID_prep
+  flavor: seurat
+  n_top_genes: 4096
+  skip: false
+preprocessing:
+  apply_log1p: true
+  normalize: true
+  skip: false
+  target_sum: 10000
+qc:
+  min_cells: 10
+  min_genes: 10
+run_id: null

@@ -221,7 +221,7 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
             "batch_size": 4096,
             "device": "auto",
             "gene_types": "feature_name",
-            "load_avg": False,
+            "load_avg": True,
         },
     },
 

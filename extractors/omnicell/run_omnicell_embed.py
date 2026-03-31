@@ -5,6 +5,7 @@ Run with PYTHONPATH set so cell_types is importable, e.g.:
   PYTHONPATH=<repo_root>:<package_dir> OMNICELL_DATA_DIR=<...> \\
   python run_omnicell_embed.py --input in.h5ad --output out.npy \\
   --checkpoint_path ... --base_dir ... --config obs --gene_types feature_name --batch_size 4096
+  (checkpoint loading uses averaged weights by default, like generate_distribution_embeddings.py; pass --no-load-avg for raw encoder_state_dict)
 
 Expects adata.var to already have gene identifiers in var.index (e.g. gene_symbol)
 and normalized names (no "SYMBOL (ID)"); the parent process prepares adata before writing.
@@ -79,8 +80,23 @@ def main() -> int:
     parser.add_argument("--config", default="obs", help="Cell-types config name")
     parser.add_argument("--gene_types", default="feature_name", choices=["feature_name", "feature_id"])
     parser.add_argument("--batch_size", type=int, default=4096)
-    parser.add_argument("--load_avg", action="store_true")
+    parser.add_argument(
+        "--load-avg",
+        dest="load_avg",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Load averaged weights (avg_encoder_state_dict) when True; "
+            "False loads raw encoder_state_dict. Default True, matching "
+            "generate_distribution_embeddings.py / cell-types load_encoder."
+        ),
+    )
     args = parser.parse_args()
+
+    checkpoint_path = Path(args.checkpoint_path).expanduser().resolve()
+    if not checkpoint_path.is_file():
+        print(f"error: checkpoint not found: {checkpoint_path}", file=sys.stderr)
+        return 2
 
     base_path = Path(args.base_dir).resolve()
     if (base_path / "cell_types").is_dir():
@@ -93,10 +109,14 @@ def main() -> int:
         repo_root = base_path.parent
         package_dir = base_path
 
-    # Ensure cell_types and hydra_utils (under bulk_prediction) are importable
+    # Match generate_distribution_embeddings.py: generative/ must be on sys.path so Hydra
+    # can resolve _target_ keys like generator.count.CountFlow (top-level "generator" package).
+    generative_dir = package_dir / "generative"
     path_add = [str(repo_root), str(package_dir)]
     if (package_dir / "bulk_prediction").is_dir():
         path_add.append(str(package_dir / "bulk_prediction"))
+    if generative_dir.is_dir():
+        path_add.append(str(generative_dir))
     for p in path_add:
         if p not in sys.path:
             sys.path.insert(0, p)
@@ -112,7 +132,7 @@ def main() -> int:
     t_load = time.perf_counter()
     omnicell_base = OmnicellBase(
         config=args.config,
-        checkpoint=args.checkpoint_path,
+        checkpoint=str(checkpoint_path),
         pert_config=None,
         pert_checkpoint=None,
         device=device,
@@ -132,7 +152,7 @@ def main() -> int:
     used_genes = getattr(omnicell_base.generator.model, "used_genes", None)
     if used_genes is None:
         try:
-            ckpt = torch.load(args.checkpoint_path, map_location="cpu", weights_only=False)
+            ckpt = torch.load(str(checkpoint_path), map_location="cpu", weights_only=False)
             used_genes = ckpt.get("used_genes")
         except Exception:
             pass
