@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Sequence
 
 
-DEFAULT_CHECKPOINT_ROOT = Path("/orcd/data/omarabu/001/njwfish")
+DEFAULT_CHECKPOINT_ROOT = Path("/orcd/scratch/bcs/002/njwfish")
 DEFAULT_CHECKPOINTS = [
     "cell-types/cell_types/outputs/obs/517d544b28d4a8b92f641f7627edaeff/checkpoint_epoch_3.pt",
     "cell-types/cell_types/outputs/obs/517d544b28d4a8b92f641f7627edaeff/checkpoint_epoch_4.pt",
@@ -104,7 +104,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("/orcd/data/omarabu/001/Omnicell_datasets/bio_batch_eval_results/omnicell_checkpoint_results"),
+        default=Path("/orcd/scratch/bcs/002/njwfish/Omnicell_datasets/bio_batch_eval_results/omnicell_checkpoint_results"),
         help="Root output directory. Each checkpoint writes to a child directory.",
     )
     parser.add_argument(

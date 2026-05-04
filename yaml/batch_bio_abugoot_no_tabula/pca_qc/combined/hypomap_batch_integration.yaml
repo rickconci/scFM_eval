@@ -1,5 +1,5 @@
 dataset:
-  batch_key: batch_integration
+  batch_key: Batch_ID
   class: H5ADLoader
   cv_splits: null
   dataset_name: hypomap
@@ -14,7 +14,7 @@ embedding:
   eval: true
   method: pca_qc
   params:
-    batch_key: batch_integration
+    batch_key: Batch_ID
     integration_method: pca_qc
     label_key: cell_type
     n_comps: 50
@@ -26,7 +26,7 @@ evaluations:
     baseline_methods:
     - embed_cell_types
     - embed_cell_types_jittered
-    batch_key: batch_integration
+    batch_key: Batch_ID
     label_key: cell_type
     metric: euclidean
     n_neighbors: 90
@@ -53,7 +53,7 @@ evaluations:
   skip: false
   type: annotation
 hvg:
-  batch_key: batch_integration
+  batch_key: Batch_ID
   flavor: seurat
   n_top_genes: 4096
   skip: false

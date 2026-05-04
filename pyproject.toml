@@ -36,5 +36,9 @@ dependencies = [
     "huggingface-hub>=1.7.2",
 ]
 
+[project.optional-dependencies]
+# GPU JAX for BRAS (optional): install then set JAX_PLATFORMS=cuda before launch.
+cuda12 = ["jax[cuda12]>=0.4.28"]
+
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.11"]

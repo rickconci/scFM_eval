@@ -31,11 +31,28 @@ from anndata import AnnData
 import numpy as np
 import pandas as pd
 import scanpy as sc
-from scipy import sparse
 from matplotlib import pyplot as plt
 from utils.logs_ import get_logger
 
 logger = get_logger()
+
+
+def _default_jax_cpu_for_bras() -> None:
+    """Pin JAX to CPU for BRAS unless the user already set ``JAX_PLATFORMS``.
+
+    BRAS pulls in JAX via ``scib_metrics``. Default JAX probes TPU/CUDA first,
+    which is noisy and can mis-configure CPU-only installs. CPU is fast enough
+    after subsampling (5k cells). For GPU BRAS after installing ``jax[cuda12]``,
+    set ``JAX_PLATFORMS=cuda`` or ``cuda,cpu`` before importing this module.
+    """
+    import os
+
+    if os.environ.get("JAX_PLATFORMS"):
+        return
+    os.environ["JAX_PLATFORMS"] = "cpu"
+
+
+_default_jax_cpu_for_bras()
 
 # Optional: scib_metrics provides BRAS (batch removal score)
 try:
@@ -43,10 +60,7 @@ try:
 except ImportError:
     scib_metrics = None  # type: ignore
 
-import numpy as np
-import scanpy as sc
 import scipy.sparse as sp
-from anndata import AnnData
 
 
 def compute_lisi_pure_python(

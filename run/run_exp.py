@@ -23,7 +23,14 @@ sys.path.insert(0, dir_path)
 
 from viz.visualization import EmbeddingVisualizer
 from utils.logs_ import set_logging
-from utils.data_state import DataState, get_data_state, set_data_state, ensure_state, get_state_summary
+from utils.data_state import (
+    DataState,
+    get_data_state,
+    set_data_state,
+    ensure_state,
+    get_state_summary,
+    recover_counts_from_normalized,
+)
 from setup_path import OUTPUT_PATH, PARAMS_PATH, EMBEDDINGS_PATH, TEMP_PATH
 from run.utils import timing, get_configs, get_embedding_key, configure_temp_directory, cleanup_temp_files
 from run.evaluation_runner import EvaluationRunner
@@ -371,9 +378,17 @@ class Experiment:
                 self.loader.adata = self.loader.adata.raw.to_adata()
                 set_data_state(self.loader.adata, DataState.RAW, mark_preprocessed=False)
             else:
-                raise ValueError(
-                    'omnicell requires RAW count data, but current matrix is not RAW and adata.raw is unavailable. '
-                    'Please load raw counts (e.g., dataset config `load_raw: true`) or provide an h5ad with counts in X.'
+                # Fallback: approximate counts via expm1 + per-cell rescale + round.
+                # Less accurate than real raw counts but lets the encoder run on datasets
+                # that ship only log1p/normalized X without adata.raw.
+                self.log.warning(
+                    'omnicell expects RAW counts but adata.raw is missing. '
+                    'Approximating counts from current X (expm1 if LOG1P + rescale + round). '
+                    'For best quality, reload with raw counts available.'
+                )
+                target_lib = preproc_config.get('target_sum', 10000) or 10000
+                self.loader.adata = recover_counts_from_normalized(
+                    self.loader.adata, target_median_lib_size=float(target_lib), inplace=True
                 )
         elif current_state == DataState.LOG1P and target_state == DataState.NORMALIZED:
             # Data is log1p but model expects NORMALIZED; extractor uses get_data_state(adata) and skips internal log1p

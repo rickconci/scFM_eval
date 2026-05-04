@@ -35,7 +35,7 @@ embedding:
     config: obs
     batch_size: 4096
     gene_types: feature_name
-    load_avg: false
+    load_avg: true
 evaluations:
 - type: batch_effects
   skip: false

@@ -222,6 +222,11 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
             "device": "auto",
             "gene_types": "feature_name",
             "load_avg": True,
+            # Set-composition at inference time (see scFM_eval/debug_encoder.py).
+            # singleton = (B,1,G) per-cell (matches current behavior);
+            # joint = (1,N,G) one set — SetNorm sees all N cells.
+            "encoding_method": "singleton",
+            "joint_chunk": 8192,
         },
     },
 

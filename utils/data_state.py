@@ -320,6 +320,84 @@ def ensure_state(
     return adata
 
 
+def recover_counts_from_normalized(
+    adata: "ad.AnnData",
+    target_median_lib_size: Optional[float] = None,
+    inplace: bool = True,
+) -> "ad.AnnData":
+    """Approximate RAW counts from NORMALIZED / LOG1P data when ``adata.raw`` is missing.
+
+    Procedure (count-aware, best-effort):
+
+    1. If current state is LOG1P → apply ``np.expm1`` (undoes log1p, still TP10K-scaled).
+    2. Rescale each cell so the median library size matches ``target_median_lib_size``
+       (defaults to a common value of ``1e4`` when unknown). This is necessary because
+       ``expm1`` inverts log1p but keeps the normalize_total scale (e.g. TP10K), which
+       is typically 10k per cell while true libraries can be 2–10× larger.
+    3. Round to non-negative integers.
+
+    This only runs when you have no alternative (``adata.raw`` is absent). Prefer
+    loading true counts whenever possible (dataset config ``load_raw: true``).
+
+    Args:
+        adata: AnnData whose ``X`` is NORMALIZED (TP10K) or LOG1P.
+        target_median_lib_size: Target per-cell total after rescaling. If ``None``,
+            uses the current median of row sums as a safe no-op; for log1p data this
+            falls back to ``1e4``.
+        inplace: If False, work on a copy.
+
+    Returns:
+        AnnData with ``X`` dtype int32 and ``uns['data_state'] = 'raw'``. A flag
+        ``uns['counts_approximated_from_normalized'] = True`` is added for provenance.
+    """
+    from scipy.sparse import csr_matrix, issparse
+
+    current = get_data_state(adata)
+    if current == DataState.RAW:
+        return adata
+    if current == DataState.UNKNOWN:
+        logger.warning(
+            "recover_counts_from_normalized: state UNKNOWN; proceeding heuristically."
+        )
+    if not inplace:
+        adata = adata.copy()
+
+    X = adata.X
+    if issparse(X):
+        X = X.toarray()
+    X = np.asarray(X, dtype=np.float64)
+
+    if current == DataState.LOG1P:
+        X = np.expm1(X)
+        row_sums = X.sum(axis=1)
+        # LOG1P was usually derived from normalize_total(target=1e4); default target aligns
+        tgt = float(target_median_lib_size) if target_median_lib_size else 1e4
+        scale = np.where(row_sums > 0, tgt / row_sums, 1.0)
+        X = X * scale[:, None]
+    elif current == DataState.NORMALIZED:
+        row_sums = X.sum(axis=1)
+        tgt = (
+            float(target_median_lib_size)
+            if target_median_lib_size
+            else float(np.median(row_sums[row_sums > 0])) if np.any(row_sums > 0) else 1.0
+        )
+        scale = np.where(row_sums > 0, tgt / row_sums, 1.0)
+        X = X * scale[:, None]
+
+    X = np.clip(np.rint(X), a_min=0, a_max=None).astype(np.int32, copy=False)
+    # Keep sparsity when large
+    if X.size > 5_000_000:
+        X = csr_matrix(X)
+    adata.X = X
+    adata.uns["counts_approximated_from_normalized"] = True
+    set_data_state(adata, DataState.RAW, mark_preprocessed=False)
+    logger.info(
+        "recover_counts_from_normalized: %s → RAW (approximate; expm1+rescale+round).",
+        current.value,
+    )
+    return adata
+
+
 def get_state_summary(adata: "ad.AnnData", use_raw: bool = False) -> str:
     """
     Get a human-readable summary of the data state.
@@ -369,6 +447,7 @@ __all__ = [
     "set_data_state",
     "needs_transform",
     "ensure_state",
+    "recover_counts_from_normalized",
     "get_state_summary",
     "is_log1p",
     "is_normalized",

@@ -17,8 +17,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -48,6 +51,62 @@ from base_extract import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# Regexes for the lines emitted by ``cell_types/tasks/data/genes.py::map_genes(_to_global_list)``
+# and ``run_omnicell_embed.py::_get_cell_embeddings``. Used to scrape per-dataset gene-mapping
+# coverage out of the subprocess log so the parent run keeps a paper trail.
+_RE_TOTAL = re.compile(r"^\s*Total genes to map:\s*(\d+)", re.MULTILINE)
+_RE_MAPPED = re.compile(r"^\s*Successfully mapped:\s*(\d+)", re.MULTILINE)
+_RE_REMOVED = re.compile(
+    r"^\s*Removing\s+(\d+)\s+genes since they are not in the used genes list",
+    re.MULTILINE,
+)
+_RE_X_SHARED = re.compile(
+    r"X_shared shape=\((\d+),\s*(\d+)\)",
+    re.MULTILINE,
+)
+
+
+def _summarize_omnicell_subprocess_log(log_path: Path) -> dict[str, Any]:
+    """Scrape gene-mapping coverage + encoder input shape out of the subprocess log.
+
+    The omnicell subprocess prints a few self-describing lines that fully characterize
+    how the input adata was mapped onto the model vocabulary:
+
+    - ``Total genes to map: N`` / ``Successfully mapped: M`` (pre-``used_genes`` filter)
+    - ``Removing K genes since they are not in the used genes list``
+    - ``X_shared shape=(N_cells, N_shared)`` (final tensor going into the encoder)
+
+    Returns a dict with whatever it could parse; missing keys mean the corresponding
+    line was not in the log (e.g. older run, or subprocess crashed early).
+    """
+    out: dict[str, Any] = {}
+    try:
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return out
+
+    if (m := _RE_TOTAL.search(text)) is not None:
+        out["genes_in_input"] = int(m.group(1))
+    if (m := _RE_MAPPED.search(text)) is not None:
+        out["genes_mapped_to_global"] = int(m.group(1))
+    if (m := _RE_REMOVED.search(text)) is not None:
+        out["genes_removed_not_in_used_genes"] = int(m.group(1))
+    if (m := _RE_X_SHARED.search(text)) is not None:
+        out["n_cells"] = int(m.group(1))
+        out["n_shared_into_encoder"] = int(m.group(2))
+
+    n_in = out.get("genes_in_input")
+    n_map = out.get("genes_mapped_to_global")
+    if n_in and n_map is not None:
+        out["pct_genes_mapped_to_global"] = round(100.0 * n_map / n_in, 2)
+    n_removed = out.get("genes_removed_not_in_used_genes")
+    if n_map is not None and n_removed is not None and n_map > 0:
+        kept = max(n_map - n_removed, 0)
+        out["genes_kept_after_used_genes"] = kept
+        out["pct_kept_after_used_genes"] = round(100.0 * kept / n_map, 2)
+    return out
 
 
 class OmnicellExtractor(BaseExtractor):
@@ -96,6 +155,8 @@ class OmnicellExtractor(BaseExtractor):
         device: str = "auto",
         gene_types: str = "feature_name",
         load_avg: bool = True,
+        encoding_method: str = "singleton",
+        joint_chunk: int = 8192,
         params: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
@@ -112,6 +173,8 @@ class OmnicellExtractor(BaseExtractor):
             device = self.params.get("device", device)
             gene_types = self.params.get("gene_types", gene_types)
             load_avg = self.params.get("load_avg", load_avg)
+            encoding_method = self.params.get("encoding_method", encoding_method)
+            joint_chunk = self.params.get("joint_chunk", joint_chunk)
         else:
             super().__init__(
                 checkpoint_path=checkpoint_path,
@@ -121,7 +184,14 @@ class OmnicellExtractor(BaseExtractor):
                 device=device,
                 gene_types=gene_types,
                 load_avg=load_avg,
+                encoding_method=encoding_method,
+                joint_chunk=joint_chunk,
                 **kwargs,
+            )
+
+        if encoding_method not in ("singleton", "joint"):
+            raise ValueError(
+                f"encoding_method must be 'singleton' or 'joint', got {encoding_method!r}"
             )
 
         self.checkpoint_path = checkpoint_path
@@ -131,6 +201,8 @@ class OmnicellExtractor(BaseExtractor):
         self.device = device
         self.gene_types = gene_types
         self.load_avg = load_avg
+        self.encoding_method = encoding_method
+        self.joint_chunk = int(joint_chunk)
 
         if not self.checkpoint_path or not Path(self.checkpoint_path).exists():
             raise FileNotFoundError(
@@ -200,6 +272,20 @@ class OmnicellExtractor(BaseExtractor):
         if "OMNICELL_DATA_DIR" not in env:
             logger.warning("OMNICELL_DATA_DIR not set; cell-types may fail to load gene manager")
 
+        # Persist the subprocess log + a JSON sidecar with the gene-mapping coverage
+        # next to the run instead of inside ``/tmp``, so we keep a paper trail of what
+        # the encoder actually saw (input → global list → used_genes → encoder shared).
+        save_dir_str = self.params.get("save_dir") if hasattr(self, "params") else None
+        if save_dir_str:
+            persist_dir = Path(save_dir_str) / "extractor_logs"
+            persist_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            persist_dir = None
+            logger.warning(
+                "OmnicellExtractor: 'save_dir' not in params; subprocess log + gene-coverage "
+                "JSON will only live in /tmp and be lost when this run exits."
+            )
+
         with tempfile.TemporaryDirectory(prefix="omnicell_embed_") as tmp:
             input_h5ad = Path(tmp) / "adata.h5ad"
             output_npy = Path(tmp) / "embeddings.npy"
@@ -231,6 +317,10 @@ class OmnicellExtractor(BaseExtractor):
                 self.gene_types,
                 "--batch_size",
                 str(self.batch_size),
+                "--encoding-method",
+                self.encoding_method,
+                "--joint-chunk",
+                str(self.joint_chunk),
             ]
             if not self.load_avg:
                 cmd.append("--no-load-avg")
@@ -247,14 +337,62 @@ class OmnicellExtractor(BaseExtractor):
             # Never inherit stdout/stderr when this process may have stdout/stderr connected
             # to a full PIPE (parallel runner uses subprocess.run(capture_output=True)).
             # The helper prints once per ~10% of batches; ~900k cells → enough lines to fill 64KiB.
-            with open(subprocess_log, "w", encoding="utf-8", errors="replace") as logf:
-                result = subprocess.run(
-                    cmd,
-                    env=env,
-                    cwd=str(repo_root),
-                    stdout=logf,
-                    stderr=subprocess.STDOUT,
+            try:
+                with open(subprocess_log, "w", encoding="utf-8", errors="replace") as logf:
+                    result = subprocess.run(
+                        cmd,
+                        env=env,
+                        cwd=str(repo_root),
+                        stdout=logf,
+                        stderr=subprocess.STDOUT,
+                    )
+            finally:
+                # Always copy the subprocess log out of /tmp before the TemporaryDirectory
+                # context tears it down — even if the subprocess crashed.
+                if persist_dir is not None and subprocess_log.exists():
+                    try:
+                        shutil.copy2(subprocess_log, persist_dir / "omnicell_subprocess.log")
+                    except OSError as e:  # pragma: no cover - defensive
+                        logger.warning("Failed to persist omnicell subprocess log: %s", e)
+
+            # Parse the subprocess log for gene-mapping coverage (works for success
+            # and partial-failure runs alike).
+            coverage = _summarize_omnicell_subprocess_log(subprocess_log)
+            if coverage:
+                logger.info(
+                    "Omnicell gene coverage | input=%s mapped=%s (%.1f%%) "
+                    "used_genes_kept=%s (%.1f%%) shared_into_encoder=%s",
+                    coverage.get("genes_in_input", "?"),
+                    coverage.get("genes_mapped_to_global", "?"),
+                    coverage.get("pct_genes_mapped_to_global", float("nan")),
+                    coverage.get("genes_kept_after_used_genes", "?"),
+                    coverage.get("pct_kept_after_used_genes", float("nan")),
+                    coverage.get("n_shared_into_encoder", "?"),
                 )
+                if persist_dir is not None:
+                    coverage_meta = {
+                        **coverage,
+                        "checkpoint_path": str(self.checkpoint_path),
+                        "config": self.config,
+                        "gene_types": self.gene_types,
+                        "load_avg": bool(self.load_avg),
+                        "encoding_method": self.encoding_method,
+                        "batch_size": int(self.batch_size),
+                    }
+                    try:
+                        (persist_dir / "omnicell_gene_coverage.json").write_text(
+                            json.dumps(coverage_meta, indent=2),
+                            encoding="utf-8",
+                        )
+                    except OSError as e:  # pragma: no cover - defensive
+                        logger.warning("Failed to write omnicell_gene_coverage.json: %s", e)
+            else:
+                logger.warning(
+                    "OmnicellExtractor: could not parse gene-mapping coverage from subprocess log "
+                    "(%s). The subprocess may have crashed before mapping or the log format changed.",
+                    subprocess_log,
+                )
+
             if result.returncode != 0:
                 try:
                     tail = subprocess_log.read_text(encoding="utf-8", errors="replace")[
@@ -303,6 +441,23 @@ def main() -> None:
         help="Gene identifier type in adata.var_names (default: feature_name)",
     )
     parser.add_argument(
+        "--encoding-method",
+        dest="encoding_method",
+        choices=["singleton", "joint"],
+        default="singleton",
+        help=(
+            "singleton: (B,1,G) per-cell (default); joint: (1,N,G) set-level "
+            "(SetNorm sees all N cells at once)."
+        ),
+    )
+    parser.add_argument(
+        "--joint-chunk",
+        dest="joint_chunk",
+        type=int,
+        default=8192,
+        help="Max cells per (1,K,G) forward when encoding_method=joint (default 8192).",
+    )
+    parser.add_argument(
         "--load-avg",
         dest="load_avg",
         action=argparse.BooleanOptionalAction,
@@ -322,6 +477,8 @@ def main() -> None:
         device=args.device,
         gene_types=args.gene_types,
         load_avg=args.load_avg,
+        encoding_method=args.encoding_method,
+        joint_chunk=args.joint_chunk,
     )
     run_extraction(
         extractor,

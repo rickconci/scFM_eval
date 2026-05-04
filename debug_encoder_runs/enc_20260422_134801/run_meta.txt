@@ -1,0 +1,4 @@
+checkpoint=/orcd/scratch/bcs/002/njwfish/cell-types/cell_types/outputs/obs/517d544b28d4a8b92f641f7627edaeff/checkpoint_epoch_5.pt
+config=obs
+h5ad=/orcd/scratch/bcs/002/njwfish/Omnicell_datasets/bio_batch_eval_data/dkd.h5ad
+max_cells=2000  map_mode=feature_name

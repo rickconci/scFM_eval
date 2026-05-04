@@ -11,9 +11,12 @@ quality match what cell-types expects.
 Usage (run from an env that has torch, anndata, scanpy, matplotlib)::
 
     cd /orcd/data/omarabu/001/rconci/scFM_eval
-    export OMNICELL_DATA_DIR=/orcd/data/omarabu/001/Omnicell_datasets/
+    export OMNICELL_DATA_DIR=/orcd/scratch/bcs/002/njwfish/Omnicell_datasets/
     python debug_omnicell_direct.py
+
+    /orcd/scratch/bcs/002/njwfish/cell-types/cell_types/outputs/obs/517d544b28d4a8b92f641f7627edaeff/checkpoint_epoch_5.pt
 """
+
 
 from __future__ import annotations
 
@@ -38,15 +41,15 @@ _DEFAULT_OUT_BASE = _REPO_ROOT / "debug_omnicell_umap"
 log = logging.getLogger("direct_omnicell")
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-H5AD_PATH = Path("/orcd/data/omarabu/001/Omnicell_datasets/bio_batch_eval_data/dkd.h5ad")
+H5AD_PATH = Path("/orcd/scratch/bcs/002/njwfish/Omnicell_datasets/bio_batch_eval_data/dkd.h5ad")
 CHECKPOINT = Path(
-    "/orcd/data/omarabu/001/njwfish/cell-types/cell_types/outputs/obs/"
+    "/orcd/scratch/bcs/002/njwfish/cell-types/cell_types/outputs/obs/"
     "517d544b28d4a8b92f641f7627edaeff/checkpoint_epoch_5.pt"
 )
 CELL_TYPES_ROOT = Path("/orcd/data/omarabu/001/rconci/cell-types")
 PACKAGE_DIR = CELL_TYPES_ROOT / "cell_types"
 GLOBAL_GENE_LIST = Path(
-    "/orcd/data/omarabu/001/Omnicell_datasets/protocol_embeddings/genes/global_gene_mapping.parquet"
+    "/orcd/scratch/bcs/002/njwfish/Omnicell_datasets/protocol_embeddings/genes/global_gene_mapping.parquet"
 )
 BIO_COL = "cell_type"
 BATCH_COL = "assay"
@@ -131,7 +134,7 @@ def main() -> int:
             sys.path.insert(0, p)
 
     import os
-    os.environ.setdefault("OMNICELL_DATA_DIR", "/orcd/data/omarabu/001/Omnicell_datasets/")
+    os.environ.setdefault("OMNICELL_DATA_DIR", "/orcd/scratch/bcs/002/njwfish/Omnicell_datasets/")
 
     # ── 2. Load data ──────────────────────────────────────────────────────
     log.info("Loading %s ...", H5AD_PATH)
@@ -355,8 +358,9 @@ def main() -> int:
             end = min(start + BATCH_SIZE, n_cells)
             x_t = torch.from_numpy(X_shared[start:end]).to(device).unsqueeze(1)
             with torch.no_grad():
-                _, cell_emb, _ = encoder(x_t, return_cell_embeddings=True)
-            emb_list.append(cell_emb.squeeze(1).cpu().numpy())
+                # S=1: set-level `lat` [B, L] equals per-cell embedding; no return_cell_embeddings head.
+                lat = encoder(x_t, return_cell_embeddings=False)
+            emb_list.append(lat.float().cpu().numpy())
         emb = np.concatenate(emb_list, axis=0).astype(np.float32)
         log.info(
             "%s embeddings: shape %s  time %.1fs  "

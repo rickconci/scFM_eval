@@ -1,5 +1,5 @@
 dataset:
-  batch_key: batch
+  batch_key: assay
   class: H5ADLoader
   cv_splits: null
   dataset_name: lung_atlas
@@ -14,7 +14,7 @@ embedding:
   eval: true
   method: scanorama
   params:
-    batch_key: batch
+    batch_key: assay
     integration_method: scanorama
     label_key: cell_type
     n_comps: 50
@@ -26,7 +26,7 @@ evaluations:
     baseline_methods:
     - embed_cell_types
     - embed_cell_types_jittered
-    batch_key: batch
+    batch_key: assay
     label_key: cell_type
     metric: euclidean
     n_neighbors: 90
@@ -53,7 +53,7 @@ evaluations:
   skip: false
   type: annotation
 hvg:
-  batch_key: batch
+  batch_key: assay
   flavor: seurat
   n_top_genes: 4096
   skip: false
